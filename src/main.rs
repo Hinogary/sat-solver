@@ -3,14 +3,14 @@ use itertools::Itertools;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Var {
     index: usize,
-    sign: Sign,
+    sign: bool,
 }
 
 impl Var {
     fn new(index: usize, state: bool) -> Var {
         Var {
             index,
-            sign: Sign::new_bool(state),
+            sign: state,
         }
     }
 }
@@ -19,37 +19,9 @@ impl std::ops::Not for Var {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        match self.sign {
-            Sign::Positive => Var {
-                sign: Sign::Negative,
-                index: self.index,
-            },
-            Sign::Negative => Var {
-                sign: Sign::Positive,
-                index: self.index,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Sign {
-    Positive,
-    Negative,
-}
-
-impl Sign {
-    fn into_maybe_bool(self) -> MaybeBool {
-        MaybeBool(Some(match self {
-            Sign::Positive => true,
-            Sign::Negative => false,
-        }))
-    }
-
-    fn new_bool(b: bool) -> Sign {
-        match b {
-            true => Sign::Positive,
-            false => Sign::Negative,
+        Var{
+            index: self.index,
+            sign: self.sign,
         }
     }
 }
@@ -82,20 +54,17 @@ impl std::convert::From<bool> for MaybeBool {
 }
 
 impl Var {
-    fn to_maybe_bool(self) -> MaybeBool {
-        match self.sign {
-            Sign::Positive => MaybeBool(Some(true)),
-            Sign::Negative => MaybeBool(Some(false)),
-        }
+    fn into_maybe_bool(self) -> MaybeBool {
+        MaybeBool(Some(self.sign))
     }
     fn into_bool(self) -> bool {
-        self.sign == Sign::Positive
+        self.sign
     }
 }
 
 impl std::fmt::Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.sign == Sign::Negative {
+        if !self.sign {
             write!(f, "~");
         }
         write!(f, "x{}", self.index)
@@ -184,12 +153,12 @@ impl Clause {
         for var in &self.literals {
             //println!("{:?} {:?} {:?}", to_assign, var.sign, assigments[var.index].into_maybe_bool());
             match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
-                (_, Sign::Positive, MaybeBool(Some(true)))
-                | (_, Sign::Negative, MaybeBool(Some(false))) => satisfied = true, // it is already satisfied
+                (_, true, MaybeBool(Some(true)))
+                | (_, false, MaybeBool(Some(false))) => satisfied = true, // it is already satisfied
                 (None, _, MaybeBool(None)) => to_assign = Some(var),
                 (Some(_), _, MaybeBool(None)) => return VarAssingable::Nothing, // at least 2 vars are undefined
-                (_, Sign::Positive, MaybeBool(Some(false)))
-                | (_, Sign::Negative, MaybeBool(Some(true))) => (),
+                (_, true, MaybeBool(Some(false)))
+                | (_, false, MaybeBool(Some(true))) => (),
             }
         }
         //println!("{}", satisfied);
@@ -245,29 +214,61 @@ impl VarSource {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TrailState {
-    FirstChoice(bool, usize),
-    SecondChoice(bool, usize),
+enum TrailChoice{
+    FirstChoice,
+    SecondChoice
 }
 
-impl TrailState {
-    fn into_inner(self) -> (bool, usize) {
-        match self {
-            TrailState::FirstChoice(state, index) | TrailState::SecondChoice(state, index) => {
-                (state, index)
-            }
-        }
+#[derive(Debug, Clone, Copy)]
+struct TrailState {
+    var: Var,
+    choice: TrailChoice,
+}
+
+trait Heuristics{
+    fn choose_variable_to_assign(assingables: &SearchState);
+    fn select_variable(var: Var);
+    fn deselect_variable(var: Var);
+}
+
+#[derive(Debug, Default)]
+struct NaiveHeuristics{
+    last_selected: u32
+}
+
+impl Heuristics for NaiveHeuristics {
+    fn choose_variable_to_assign(search_state: &SearchState){
+
+    }
+    fn select_variable(var: Var){
+
+    }
+    fn deselect_variable(var: Var){
+
     }
 }
 
+struct SearchState {
+    trail: Vec<TrailState>,
+    deductions: Vec<(Var, usize)>
+}
+
 #[derive(Debug)]
-struct CDCLSolver {
+struct Solver<H>
+where H: Heuristics, H: std::fmt::Debug {
     clauses: Vec<Clause>,
     assigments: Vec<VarSource>,
     deducted: usize,
     trail: Vec<TrailState>,
     /// Var levels
     deductions: Vec<(Var, usize)>,
+    cursor: Cursor,
+    heuristics: H,
+}
+
+#[derive(Debug)]
+struct Cursor {
+    position: usize,
 }
 
 mod parsing;
@@ -276,18 +277,6 @@ use parsing::{str_to_clause, str_to_clauses};
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn test_satisfability(expr: &str) {
-        println!("------------------------------------------------");
-        println!("{}", expr);
-        let clauses = str_to_clauses(expr);
-        let mut solver = CDCLSolver::init(clauses).unwrap();
-        assert!(Ok(()) == solver.solve());
-        assert!(
-            solver.test_satisfied() == MaybeBool::truee(),
-            format!("{:?}, {:#?}", solver.test_satisfied(), solver)
-        );
-    }
 
     fn test_assingability(clause: &str, assign: &[bool]) {
         let assignable = assingability(clause, assign);
@@ -364,6 +353,18 @@ mod tests {
         test_unassigability("(x0 v x2 v x1)", &[true]);
     }
 
+    fn test_satisfability(expr: &str) {
+        println!("------------------------------------------------");
+        println!("{}", expr);
+        let clauses = str_to_clauses(expr);
+        let mut solver = Solver::<NaiveHeuristics>::init(clauses).unwrap();
+        assert!(Ok(()) == solver.solve());
+        assert!(
+            solver.test_satisfied() == MaybeBool::truee(),
+            format!("{:?}, {:#?}", solver.test_satisfied(), solver)
+        );
+    }
+
     #[test]
     fn test_solver() {
         test_satisfability("(x0 v x1) ^ (x1 v ~x2 v x3) ^ (~x0 v ~x3)");
@@ -392,8 +393,10 @@ struct Conflict {
     clause: Clause,
 }
 
-impl CDCLSolver {
-    fn init(clauses: Vec<Clause>) -> Result<CDCLSolver, ()> {
+impl<H> Solver<H>
+where H : Heuristics, H: Default, H: std::fmt::Debug
+{
+    fn init(clauses: Vec<Clause>) -> Result<Solver<H>, ()> {
         let nvars = clauses
             .iter()
             .map(|clause| {
@@ -407,12 +410,16 @@ impl CDCLSolver {
             .max()
             .unwrap_or(0)
             + 1;
-        Ok(CDCLSolver {
+        Ok(Solver {
             clauses,
             deducted: 0,
             assigments: vec![VarSource::Undef; nvars],
             trail: vec![],
             deductions: vec![],
+            cursor: Cursor{
+                position: 0,
+            },
+            heuristics: H::default(),
         })
     }
 
@@ -425,7 +432,7 @@ impl CDCLSolver {
                     .literals
                     .iter()
                     .map(|lit| {
-                        self.assigments[lit.index].into_maybe_bool() ^ !lit.sign.into_maybe_bool()
+                        self.assigments[lit.index].into_maybe_bool() ^ !MaybeBool(Some(lit.sign))
                     })
                     .fold(MaybeBool::falsee(), |acc, x| acc | x)
             })
@@ -435,10 +442,16 @@ impl CDCLSolver {
     /// unit propagation, Err is conflict (not propagated, just raw)
     fn propagate(&mut self) -> Result<bool, Conflict> {
         let mut deductions = false;
+        let position = self.cursor.position;
+        let mut advance = 0;
         match self
-            .clauses
+            .clauses[position..]
             .iter()
-            .map(|clause| clause.assingable(&self.assigments))
+            .chain(self.clauses[..position].iter())
+            .map(|clause| {
+                advance += 1;
+                clause.assingable(&self.assigments)
+            })
             .find(|res| match res {
                 VarAssingable::Nothing => false,
                 _ => true,
@@ -451,14 +464,21 @@ impl CDCLSolver {
                     .max()
                     .unwrap()
                     .unwrap();
-                self.save_deduct(var.index, var.into_bool(), sources, conflict_level);
+                self.save_deduct(
+                    var.index,
+                    var.into_bool(),
+                    sources.iter().filter(|&&x| x != var).cloned().collect(),
+                    conflict_level,
+                );
             }
             Some(VarAssingable::Conflict(conflict)) => {
+                self.cursor.position = (self.cursor.position + advance)%self.clauses.len();
                 return Err(conflict);
             }
             Some(VarAssingable::Nothing) => (),
             None => (),
         }
+        self.cursor.position = (self.cursor.position + advance)%self.clauses.len();
         Ok(deductions)
     }
 
@@ -517,17 +537,16 @@ impl CDCLSolver {
         //debug_assert!(self.assigments[index] == VarSource::Undef, format!("x{} = {}", index, state));
         self.assigments[index] = VarSource::Fixed(state, index);
         if second {
-            self.trail.push(TrailState::SecondChoice(state, index));
+            self.trail.push(TrailState{choice: TrailChoice::SecondChoice, var:Var::new(index, state)});
         } else {
-            self.trail.push(TrailState::FirstChoice(state, index));
+            self.trail.push(TrailState{choice: TrailChoice::FirstChoice, var:Var::new(index, state)});
         }
     }
 
     fn pop_fixed_state(&mut self) -> TrailState {
-        println!("trail pop");
         match self.trail.pop() {
             Some(x) => {
-                self.assigments[x.into_inner().1] = VarSource::Undef;
+                self.assigments[x.var.index] = VarSource::Undef;
                 self.strip_deductions();
                 x
             }
@@ -538,18 +557,16 @@ impl CDCLSolver {
     #[cfg(debug_assertions)]
     fn visualize_decisions(&self) {
         println!("Decision tree ------------------------");
-        //println!("{:?}", self.trail);
-        //println!("{:?}", self.assigments);
         for (i, decision) in (0..).zip(self.trail.iter()) {
             match decision {
-                TrailState::FirstChoice(_, _) => print!("   1."),
-                TrailState::SecondChoice(_, _) => print!("   2."),
+                TrailState{choice: TrailChoice::FirstChoice, ..} => print!("   1."),
+                TrailState{choice: TrailChoice::SecondChoice, ..} => print!("   2."),
             }
-            let decision = decision.into_inner();
+            let decision = decision.var;
             print!(
                 "  x{} = {}",
-                decision.1,
-                match decision.0 {
+                decision.index,
+                match decision.sign {
                     true => 'T',
                     false => 'F',
                 }
@@ -569,8 +586,8 @@ impl CDCLSolver {
                             "x{} = {}",
                             var.index,
                             match var.sign {
-                                Sign::Positive => 'T',
-                                Sign::Negative => 'F',
+                                true => 'T',
+                                false => 'F',
                             }
                         )
                     })
@@ -623,22 +640,20 @@ impl CDCLSolver {
 
         // Move conflict plane upwards -> generate better clauses (not yet implemented)
 
-        /*
-
         let mut conflict_plane: UnsafeCell<_> = conflict_plane.into();
 
         let mut new_clause_from_conflict = Clause::empty();
         let mut waiting_to_insert_into_cf = Set::new();
-        let mut conflict_plane: UnsafeCell<_> = conflict_plane.into();
+        let mut x = 0;
         loop {
             for (&k, v) in unsafe { &mut *conflict_plane.get() }
                 .iter_mut()
                 .filter(|(_, v)| **v)
             {
+                *v = false;
                 match &self.assigments[k.index] {
                     VarSource::Undef => unreachable!(),
                     VarSource::Deducted(_, source, _) => {
-                        *v = false;
                         for var in source {
                             // Keys can't alias, it will cause cyclic Clause
                             if unsafe { &*conflict_plane.get() }.get(&var) == None {
@@ -647,10 +662,9 @@ impl CDCLSolver {
                         }
                     }
                     VarSource::Fixed(_, level) => {
-                        new_clause_from_conflict.insert(if level == last_level { k } else { !k })
+                        new_clause_from_conflict.insert(if *level == last_level { k } else { !k })
                     }
                 }
-                *v = false;
             }
             if waiting_to_insert_into_cf.is_empty() {
                 break;
@@ -659,28 +673,29 @@ impl CDCLSolver {
                 unsafe { &mut *conflict_plane.get() }.insert(key, true);
                 false
             });
+            x += 1;
+            if x > 10 {
+                panic!()
+            }
         }
-        */
-
         // TODO: generate clause from conflict plane and insert it
 
         // Undoes work up to implied_level, then change mind on var selection
         // last level -> delete
         // implication level -> change mind
 
-        (implied_level..=self.trail.len()-2)
+        (implied_level..=self.trail.len() - 2)
             .map(|_| self.pop_fixed_state())
             .last();
 
         loop {
             match (self.pop_fixed_state(), self.trail.len()) {
-                (TrailState::SecondChoice(_, _), 0) => return Err(()),
-                (TrailState::FirstChoice(val, index), _) => {
-                    println!("switch x{} to {}", index, val);
-                    self.set_fixed_state(!val, index, true);
+                (TrailState{choice: TrailChoice::SecondChoice, ..}, 0) => return Err(()),
+                (TrailState{choice: TrailChoice::FirstChoice, var: Var{index, sign}}, _) => {
+                    self.set_fixed_state(!(bool::from(sign)), index, true);
                     break;
                 }
-                (TrailState::SecondChoice(_, _), _) => ()
+                (TrailState{choice: TrailChoice::SecondChoice, ..}, _) => (),
             }
         }
         Ok(None)
@@ -689,7 +704,7 @@ impl CDCLSolver {
 
 fn main() {
     let clauses = str_to_clauses("(x0 v x1) ^ (x1 v x2 v x3) ^ (~x0 v ~x3)");
-    let mut solver = CDCLSolver::init(clauses).unwrap();
+    let mut solver = Solver::<NaiveHeuristics>::init(clauses).unwrap();
     assert!(Ok(()) == solver.solve());
     assert!(
         solver.test_satisfied() == MaybeBool::truee(),
