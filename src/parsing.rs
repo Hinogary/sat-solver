@@ -65,3 +65,84 @@ pub fn str_to_clauses(clauses: &str) -> Vec<Clause> {
     }
     clauses
 }
+
+pub fn str_to_clause(clause: &str) -> Clause {
+    let mut lex = Token::lexer(clause);
+    let mut clause = Clause::new();
+    match lex.next() {
+        Some(OpenBracket) => (),
+        _ => panic!("Expected '(' or end found: '{}'", lex.slice()),
+    }
+    loop {
+        match lex.next() {
+            Some(PosVar) => clause.literals.push(Var {
+                index: lex.slice()[1..].parse().unwrap(),
+                sign: Sign::Positive,
+            }),
+            Some(NegVar) => clause.literals.push(Var {
+                index: lex.slice()[2..].parse().unwrap(),
+                sign: Sign::Negative,
+            }),
+            _ => panic!("Expected variable, found: '{}'", lex.slice()),
+        }
+        match lex.next() {
+            Some(CloseBracket) => break,
+            Some(Or) => (),
+            _ => panic!("Expected 'v' or ')', found: '{}'", lex.slice()),
+        }
+    }
+    assert!(lex.next() == None);
+    clause
+}
+
+#[cfg(test)]
+#[test]
+fn test_parser() {
+    use Sign::*;
+    let clauses = str_to_clauses("(x0 v x1) ^ (x1 v x2 v x3) ^ (~x0 v ~x3)");
+    assert!(
+        clauses
+            == vec![
+                Clause {
+                    literals: vec![
+                        Var {
+                            index: 0,
+                            sign: Positive
+                        },
+                        Var {
+                            index: 1,
+                            sign: Positive
+                        }
+                    ]
+                },
+                Clause {
+                    literals: vec![
+                        Var {
+                            index: 1,
+                            sign: Positive
+                        },
+                        Var {
+                            index: 2,
+                            sign: Positive
+                        },
+                        Var {
+                            index: 3,
+                            sign: Positive
+                        }
+                    ]
+                },
+                Clause {
+                    literals: vec![
+                        Var {
+                            index: 0,
+                            sign: Negative
+                        },
+                        Var {
+                            index: 3,
+                            sign: Negative
+                        }
+                    ]
+                }
+            ]
+    );
+}

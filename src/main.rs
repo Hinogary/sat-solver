@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Var {
     index: usize,
@@ -6,9 +8,9 @@ struct Var {
 
 impl Var {
     fn new(index: usize, state: bool) -> Var {
-        Var{
+        Var {
             index,
-            sign: Sign::new_bool(state)
+            sign: Sign::new_bool(state),
         }
     }
 }
@@ -91,7 +93,7 @@ impl Var {
     }
 }
 
-impl std::fmt::Display for Var{
+impl std::fmt::Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.sign == Sign::Negative {
             write!(f, "~");
@@ -152,16 +154,19 @@ pub struct Clause {
 #[derive(Debug, Clone)]
 enum VarAssingable {
     Assingable(Var, Vec<Var>),
-    Conflict(Clause), // new Clause to add
+    Conflict(Conflict), // new Clause to add
     Nothing,
 }
-
 
 impl std::fmt::Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(");
-        self.literals.iter().take(1).for_each(|lit| {write!(f, "{}", lit);});
-        self.literals.iter().skip(1).for_each(|lit| {write!(f, " v {}", lit);});
+        self.literals.iter().take(1).for_each(|lit| {
+            write!(f, "{}", lit);
+        });
+        self.literals.iter().skip(1).for_each(|lit| {
+            write!(f, " v {}", lit);
+        });
         write!(f, ")")
     }
 }
@@ -174,29 +179,28 @@ impl Clause {
     }
     fn assingable(&self, assigments: &[VarSource]) -> VarAssingable {
         let mut to_assign = None;
-
+        let mut satisfied = false;
+        //println!("{:?}", assigments);
         for var in &self.literals {
+            //println!("{:?} {:?} {:?}", to_assign, var.sign, assigments[var.index].into_maybe_bool());
             match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
                 (_, Sign::Positive, MaybeBool(Some(true)))
-                | (_, Sign::Negative, MaybeBool(Some(false))) => return VarAssingable::Nothing, // it is already satisfied
+                | (_, Sign::Negative, MaybeBool(Some(false))) => satisfied = true, // it is already satisfied
                 (None, _, MaybeBool(None)) => to_assign = Some(var),
                 (Some(_), _, MaybeBool(None)) => return VarAssingable::Nothing, // at least 2 vars are undefined
                 (_, Sign::Positive, MaybeBool(Some(false)))
                 | (_, Sign::Negative, MaybeBool(Some(true))) => (),
             }
         }
-
-        if let Some(to_assign) = to_assign {
-            VarAssingable::Assingable(
-                *to_assign,
-                self.literals
-                    .iter()
-                    .filter(|&&var| var != *to_assign)
-                    .cloned()
-                    .collect(),
-            )
-        } else {
-            VarAssingable::Conflict(self.clone())
+        //println!("{}", satisfied);
+        match (satisfied, to_assign) {
+            (false, Some(&to_assign)) => {
+                VarAssingable::Assingable(to_assign, self.literals.iter().cloned().collect())
+            }
+            (true, _) => VarAssingable::Nothing,
+            (false, None) => VarAssingable::Conflict(Conflict {
+                clause: self.clone(),
+            }),
         }
     }
 
@@ -240,16 +244,18 @@ impl VarSource {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum TrailState {
     FirstChoice(bool, usize),
     SecondChoice(bool, usize),
 }
 
-impl TrailState{
+impl TrailState {
     fn into_inner(self) -> (bool, usize) {
         match self {
-            TrailState::FirstChoice(state, index) | TrailState::SecondChoice(state, index) => (state, index)
+            TrailState::FirstChoice(state, index) | TrailState::SecondChoice(state, index) => {
+                (state, index)
+            }
         }
     }
 }
@@ -259,69 +265,17 @@ struct CDCLSolver {
     clauses: Vec<Clause>,
     assigments: Vec<VarSource>,
     deducted: usize,
-    /// Number of levels, first one with index zero is empty
-    current_level: usize,
     trail: Vec<TrailState>,
     /// Var levels
     deductions: Vec<(Var, usize)>,
 }
 
 mod parsing;
-use parsing::str_to_clauses;
+use parsing::{str_to_clause, str_to_clauses};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_parser() {
-        use Sign::*;
-        let clauses = str_to_clauses("(x0 v x1) ^ (x1 v x2 v x3) ^ (~x0 v ~x3)");
-        assert!(
-            clauses
-                == vec![
-                    Clause {
-                        literals: vec![
-                            Var {
-                                index: 0,
-                                sign: Positive
-                            },
-                            Var {
-                                index: 1,
-                                sign: Positive
-                            }
-                        ]
-                    },
-                    Clause {
-                        literals: vec![
-                            Var {
-                                index: 1,
-                                sign: Positive
-                            },
-                            Var {
-                                index: 2,
-                                sign: Positive
-                            },
-                            Var {
-                                index: 3,
-                                sign: Positive
-                            }
-                        ]
-                    },
-                    Clause {
-                        literals: vec![
-                            Var {
-                                index: 0,
-                                sign: Negative
-                            },
-                            Var {
-                                index: 3,
-                                sign: Negative
-                            }
-                        ]
-                    }
-                ]
-        );
-    }
 
     fn test_satisfability(expr: &str) {
         println!("------------------------------------------------");
@@ -335,9 +289,85 @@ mod tests {
         );
     }
 
+    fn test_assingability(clause: &str, assign: &[bool]) {
+        let assignable = assingability(clause, assign);
+        assert!(
+            match assignable {
+                VarAssingable::Assingable(_, _) => true,
+                _ => false,
+            },
+            format!("{} {:?}", clause, assignable)
+        );
+    }
+
+    fn test_conflit_assigability(clause: &str, assign: &[bool]) {
+        let assignable = assingability(clause, assign);
+        assert!(
+            match assignable {
+                VarAssingable::Conflict(_) => true,
+                _ => false,
+            },
+            format!("{} {:?}", clause, assignable)
+        );
+    }
+
+    fn test_unassigability(clause: &str, assign: &[bool]) {
+        let assignable = assingability(clause, assign);
+        assert!(
+            match assignable {
+                VarAssingable::Nothing => true,
+                _ => false,
+            },
+            format!("{} {:?}", clause, assignable)
+        );
+    }
+
+    fn assingability(clause: &str, assign: &[bool]) -> VarAssingable {
+        let clause = str_to_clause(clause);
+        let n_assigns = clause.literals.iter().map(|x| x.index).max().unwrap() + 1;
+        let mut assigns = assign
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| VarSource::Fixed(x, i))
+            .collect::<Vec<_>>();
+        (assigns.len()..n_assigns).for_each(|_| assigns.push(VarSource::Undef));
+        clause.assingable(&assigns)
+    }
+
+    #[test]
+    fn test_assingability_cases() {
+        test_assingability("(x0 v x1)", &[false]);
+        test_assingability("(x0 v ~x1)", &[false]);
+        test_assingability("(x1 v ~x0)", &[true]);
+        test_assingability("(x1 v x0)", &[false]);
+        test_assingability("(~x0 v x1)", &[true]);
+        test_assingability("(~x0 v ~x1)", &[true]);
+        test_assingability("(~x1 v ~x0)", &[true]);
+        test_assingability("(~x1 v x0)", &[false]);
+        test_assingability("(~x1 v x0 v x2)", &[false, true]);
+        test_assingability("(~x0 v x1 v ~x2)", &[true, false]);
+        test_assingability("(~x1 v ~x2 v x0)", &[false, true]);
+        test_assingability("(~x2 v x1 v ~x0)", &[true, false]);
+
+        test_conflit_assigability("(x0 v x1)", &[false, false]);
+        test_conflit_assigability("(~x0 v x1)", &[true, false]);
+        test_conflit_assigability("(x0 v ~x1)", &[false, true]);
+        test_conflit_assigability("(~x0 v ~x1)", &[true, true]);
+
+        test_conflit_assigability("(x1 v x0)", &[false, false]);
+        test_conflit_assigability("(x1 v ~x0)", &[true, false]);
+        test_conflit_assigability("(~x1 v x0)", &[false, true]);
+        test_conflit_assigability("(~x1 v ~x0)", &[true, true]);
+
+        test_unassigability("(x0 v x1)", &[]);
+        test_unassigability("(x1 v x0)", &[]);
+        test_unassigability("(x0 v x2 v x1)", &[true]);
+    }
+
     #[test]
     fn test_solver() {
         test_satisfability("(x0 v x1) ^ (x1 v ~x2 v x3) ^ (~x0 v ~x3)");
+
         test_satisfability("(x0 v x1 v x2) ^ (~x0 v ~x1 v x2) ^ (~x0 v x1 v x2) ^ (x0 v ~x1 v x2)");
         test_satisfability("(x0 v x1 v x2) ^ (~x0 v x1 v ~x2) ^ (~x0 v x1 v x2) ^ (x0 v x1 v ~x2)");
         test_satisfability(
@@ -353,8 +383,13 @@ mod tests {
     }
 }
 
-fn debug() ->() {
+fn debug() -> () {
     ()
+}
+
+#[derive(Debug, Clone)]
+struct Conflict {
+    clause: Clause,
 }
 
 impl CDCLSolver {
@@ -374,7 +409,6 @@ impl CDCLSolver {
             + 1;
         Ok(CDCLSolver {
             clauses,
-            current_level: 0,
             deducted: 0,
             assigments: vec![VarSource::Undef; nvars],
             trail: vec![],
@@ -399,7 +433,7 @@ impl CDCLSolver {
     }
 
     /// unit propagation, Err is conflict (not propagated, just raw)
-    fn propagate(&mut self) -> Result<bool, Clause> {
+    fn propagate(&mut self) -> Result<bool, Conflict> {
         let mut deductions = false;
         match self
             .clauses
@@ -419,37 +453,37 @@ impl CDCLSolver {
                     .unwrap();
                 self.save_deduct(var.index, var.into_bool(), sources, conflict_level);
             }
-            Some(VarAssingable::Conflict(clause)) => {
-                return Err(clause);
+            Some(VarAssingable::Conflict(conflict)) => {
+                return Err(conflict);
             }
-            Some(VarAssingable::Nothing) => unreachable!(),
+            Some(VarAssingable::Nothing) => (),
             None => (),
         }
         Ok(deductions)
     }
 
-
-    fn save_deduct(&mut self, index: usize, assign: bool, vars: Vec<Var>, level: usize){
-        debug_assert!(
-            self.assigments[index] == VarSource::Undef, debug()
-        );
+    fn save_deduct(&mut self, index: usize, assign: bool, vars: Vec<Var>, level: usize) {
+        debug_assert!(self.assigments[index] == VarSource::Undef, debug());
         self.assigments[index] = VarSource::Deducted(assign, vars, level);
-        self.deductions.push(Var::new(index, assign), level);
+        self.deductions.push((Var::new(index, assign), level));
         self.deducted += 1;
     }
 
-    fn pop_deduct(&mut self){
+    fn pop_deduct(&mut self) {
         self.deducted -= 1;
-        self.assigments[self.deductions.pop().unwrap().index] = VarSource::Undef;
+        self.assigments[self.deductions.pop().unwrap().0.index] = VarSource::Undef;
     }
 
     fn last_deduct_level(&mut self) -> Option<usize> {
-
+        self.deductions.last().map(|(_, level)| *level)
     }
 
     fn solve(&mut self) -> Result<(), ()> {
         loop {
-            match self.propagate() {
+            let propagate = self.propagate();
+            #[cfg(debug_assertions)]
+            self.visualize_decisions();
+            match propagate {
                 Ok(new_deductions) if new_deductions == false => {
                     // are all variables fixed?
                     if self.deducted + self.trail.len() == self.assigments.len() {
@@ -473,51 +507,129 @@ impl CDCLSolver {
         );
         for (index, var) in (0..).zip(&mut self.assigments) {
             if *var == VarSource::Undef {
-                *var = VarSource::Fixed(false, self.current_level);
-                self.trail.push(TrailState::FirstChoice(true, index));
+                self.set_fixed_state(true, index, false);
                 break;
             }
         }
     }
 
+    fn set_fixed_state(&mut self, state: bool, index: usize, second: bool) {
+        //debug_assert!(self.assigments[index] == VarSource::Undef, format!("x{} = {}", index, state));
+        self.assigments[index] = VarSource::Fixed(state, index);
+        if second {
+            self.trail.push(TrailState::SecondChoice(state, index));
+        } else {
+            self.trail.push(TrailState::FirstChoice(state, index));
+        }
+    }
+
+    fn pop_fixed_state(&mut self) -> TrailState {
+        println!("trail pop");
+        match self.trail.pop() {
+            Some(x) => {
+                self.assigments[x.into_inner().1] = VarSource::Undef;
+                self.strip_deductions();
+                x
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn visualize_decisions(&self) {
+        println!("Decision tree ------------------------");
+        //println!("{:?}", self.trail);
+        //println!("{:?}", self.assigments);
+        for (i, decision) in (0..).zip(self.trail.iter()) {
+            match decision {
+                TrailState::FirstChoice(_, _) => print!("   1."),
+                TrailState::SecondChoice(_, _) => print!("   2."),
+            }
+            let decision = decision.into_inner();
+            print!(
+                "  x{} = {}",
+                decision.1,
+                match decision.0 {
+                    true => 'T',
+                    false => 'F',
+                }
+            );
+            let mut first = true;
+            println!(
+                "{}",
+                self.deductions
+                    .iter()
+                    .filter(|(_, level)| *level == i)
+                    .map(|(var, _)| {
+                        if first {
+                            first = false;
+                            print!(" ==> ");
+                        }
+                        format!(
+                            "x{} = {}",
+                            var.index,
+                            match var.sign {
+                                Sign::Positive => 'T',
+                                Sign::Negative => 'F',
+                            }
+                        )
+                    })
+                    .join(", ")
+            )
+        }
+    }
+
+    /// Strips deductions up to trails.len()
+    fn strip_deductions(&mut self) {
+        loop {
+            match self.last_deduct_level() {
+                Some(level) if level >= self.trail.len() => self.pop_deduct(),
+                _ => break,
+            }
+        }
+    }
+
     /// Conflict is clause, where all Variables are assigned, but Clause forms Contradiction
-    fn solve_conflict(&mut self, conflict: Clause) -> Result<Clause, ()> {
+    fn solve_conflict(&mut self, conflict: Conflict) -> Result<Option<Clause>, ()> {
         use std::cell::UnsafeCell;
         use std::collections::HashMap as Map;
         use std::collections::HashSet as Set;
-        println!("conflict: {}", conflict);
+        #[cfg(debug_assertions)]
+        println!("conflicting {}", conflict.clause);
 
-        if conflict.literals.is_empty() {
-            return Err(());
-        }
+        debug_assert!(!conflict.clause.literals.is_empty());
 
-        // Trying to get conflict plane
+        // Creating initial conflict plane and calculating risky levels conflict plane
 
         let mut conflict_plane = Map::new(); // var, is_on_edge?
         let mut last_level: Option<(usize, Var)> = None; // this is conflict level, that needs to be reverted
-        let mut implied_level = None; // this is on which can be variable implied
-        for var in conflict.literals {
+                                                         //                  v- implied_level (lowest level, which causes conflict)
+                                                         // (x1 ^ x2 ^ x3 ^ x4) => x5
+                                                         //                         ^ last_level
+        let mut implied_level = None;
+        for var in conflict.clause.literals {
             conflict_plane.insert(var, true);
-            let level = self.assigments[var.index].into_conflict_level().unwrap();
+            let level = self.assigments[var.index]
+                .into_conflict_level()
+                .unwrap_or_else(|| panic!("{:?}", self.assigments[var.index]));
             if level >= last_level.map(|x| x.0).unwrap_or(0) {
                 implied_level = last_level;
                 last_level = Some((level, var));
             }
         }
 
-        // last level -> delete
-        // implication level -> change mind
+        let last_level = last_level.map(|(x, _)| x).unwrap();
+        let implied_level = implied_level.map(|(x, _)| x).unwrap_or(0);
 
-        let last_level = last_level.unwrap();
-        println!("");
+        // Move conflict plane upwards -> generate better clauses (not yet implemented)
 
-        // TODO: What if I missed some propagation and two levels collide? Then I probably need be more aggresive with cutting. Probably not problem ...
+        /*
 
-        // TODO: heuristics for stoping resolution
+        let mut conflict_plane: UnsafeCell<_> = conflict_plane.into();
+
         let mut new_clause_from_conflict = Clause::empty();
         let mut waiting_to_insert_into_cf = Set::new();
         let mut conflict_plane: UnsafeCell<_> = conflict_plane.into();
-        let mut fixed_last_level = None;
         loop {
             for (&k, v) in unsafe { &mut *conflict_plane.get() }
                 .iter_mut()
@@ -528,17 +640,14 @@ impl CDCLSolver {
                     VarSource::Deducted(_, source, _) => {
                         *v = false;
                         for var in source {
-                            // Keys can't aliasing, it will cause cyclic Clause
-                            if unsafe { &*conflict_plane.get() }.get(&k) == None {
+                            // Keys can't alias, it will cause cyclic Clause
+                            if unsafe { &*conflict_plane.get() }.get(&var) == None {
                                 waiting_to_insert_into_cf.insert(k);
                             }
                         }
                     }
                     VarSource::Fixed(_, level) => {
-                        if *level == last_level.0 {
-                            fixed_last_level = Some(k)
-                        }
-                        new_clause_from_conflict.insert(if *level == last_level.0 { k } else { !k })
+                        new_clause_from_conflict.insert(if level == last_level { k } else { !k })
                     }
                 }
                 *v = false;
@@ -551,36 +660,30 @@ impl CDCLSolver {
                 false
             });
         }
-        if new_clause_from_conflict.is_empty() {
-            Err(()) // tautology
-        } else {
-            while self.trail.len() > last_level.0 {
-                let (b, i) = self.trail.pop().unwrap().into_inner();
-                match self.assigments[i] {
-                    VarSource::Deducted(_, _, _) => self.deducted -= 1,
-                    _ => (),
+        */
+
+        // TODO: generate clause from conflict plane and insert it
+
+        // Undoes work up to implied_level, then change mind on var selection
+        // last level -> delete
+        // implication level -> change mind
+
+        (implied_level..=self.trail.len()-2)
+            .map(|_| self.pop_fixed_state())
+            .last();
+
+        loop {
+            match (self.pop_fixed_state(), self.trail.len()) {
+                (TrailState::SecondChoice(_, _), 0) => return Err(()),
+                (TrailState::FirstChoice(val, index), _) => {
+                    println!("switch x{} to {}", index, val);
+                    self.set_fixed_state(!val, index, true);
+                    break;
                 }
-                self.assigments[i] = VarSource::Undef;
+                (TrailState::SecondChoice(_, _), _) => ()
             }
-            let implied_level = implied_level.map(|x| x.0).unwrap_or(0);
-            assert!(last_level.1.into_bool() == false);
-            if let Some(fixed_last_level) = fixed_last_level {
-                self.save_deduct(
-                    last_level.1.index,
-                    last_level.1.into_bool(),
-                    new_clause_from_conflict
-                        .literals
-                        .iter()
-                        .cloned()
-                        .filter(|&lit| lit != fixed_last_level)
-                        .collect(),
-                    implied_level
-                )
-            } else {
-                panic!()
-            }
-            Ok(new_clause_from_conflict)
         }
+        Ok(None)
     }
 }
 
