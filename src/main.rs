@@ -8,10 +8,7 @@ struct Var {
 
 impl Var {
     fn new(index: usize, state: bool) -> Var {
-        Var {
-            index,
-            sign: state,
-        }
+        Var { index, sign: state }
     }
 }
 
@@ -19,7 +16,7 @@ impl std::ops::Not for Var {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        Var{
+        Var {
             index: self.index,
             sign: self.sign,
         }
@@ -129,14 +126,15 @@ enum VarAssingable {
 
 impl std::fmt::Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(");
-        self.literals.iter().take(1).for_each(|lit| {
-            write!(f, "{}", lit);
-        });
-        self.literals.iter().skip(1).for_each(|lit| {
-            write!(f, " v {}", lit);
-        });
-        write!(f, ")")
+        write!(f, "(")?;
+        for lit in self.literals.iter().take(1) {
+            write!(f, "{}", lit)?;
+        };
+        for lit in self.literals.iter().skip(1) {
+            write!(f, " v {}", lit)?;
+        };
+        write!(f, ")")?;
+        Ok(())
     }
 }
 
@@ -153,12 +151,12 @@ impl Clause {
         for var in &self.literals {
             //println!("{:?} {:?} {:?}", to_assign, var.sign, assigments[var.index].into_maybe_bool());
             match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
-                (_, true, MaybeBool(Some(true)))
-                | (_, false, MaybeBool(Some(false))) => satisfied = true, // it is already satisfied
+                (_, true, MaybeBool(Some(true))) | (_, false, MaybeBool(Some(false))) => {
+                    satisfied = true
+                }, // it is already satisfied
                 (None, _, MaybeBool(None)) => to_assign = Some(var),
                 (Some(_), _, MaybeBool(None)) => return VarAssingable::Nothing, // at least 2 vars are undefined
-                (_, true, MaybeBool(Some(false)))
-                | (_, false, MaybeBool(Some(true))) => (),
+                (_, true, MaybeBool(Some(false))) | (_, false, MaybeBool(Some(true))) => (),
             }
         }
         //println!("{}", satisfied);
@@ -201,7 +199,7 @@ impl VarSource {
     fn into_maybe_bool(&self) -> MaybeBool {
         match self {
             VarSource::Fixed(state, _) | VarSource::Deducted(state, _, _) => (*state).into(),
-            Undef => MaybeBool::undef(),
+            VarSource::Undef => MaybeBool::undef(),
         }
     }
 
@@ -214,9 +212,9 @@ impl VarSource {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TrailChoice{
+enum TrailChoice {
     FirstChoice,
-    SecondChoice
+    SecondChoice,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -225,37 +223,86 @@ struct TrailState {
     choice: TrailChoice,
 }
 
-trait Heuristics{
-    fn choose_variable_to_assign(assingables: &SearchState);
+trait Heuristics {
+    fn choose_variable_to_assign(assingables: &SearchState) -> Var;
     fn select_variable(var: Var);
     fn deselect_variable(var: Var);
 }
 
 #[derive(Debug, Default)]
-struct NaiveHeuristics{
-    last_selected: u32
+struct NaiveHeuristics {
+    last_selected: u32,
 }
 
 impl Heuristics for NaiveHeuristics {
-    fn choose_variable_to_assign(search_state: &SearchState){
-
+    fn choose_variable_to_assign(search_state: &SearchState) -> Var {
+        unimplemented!()
     }
-    fn select_variable(var: Var){
-
-    }
-    fn deselect_variable(var: Var){
-
-    }
+    fn select_variable(var: Var) {}
+    fn deselect_variable(var: Var) {}
 }
 
 struct SearchState {
     trail: Vec<TrailState>,
-    deductions: Vec<(Var, usize)>
+    deductions: Vec<(Var, usize)>,
+    assigments: Vec<VarSource>,
+}
+
+impl std::fmt::Display for SearchState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "-- Decision tree ------------------------");
+        for (i, decision) in (0..).zip(self.trail.iter()) {
+            match decision {
+                TrailState {
+                    choice: TrailChoice::FirstChoice,
+                    ..
+                } => write!(f, "   1.")?,
+                TrailState {
+                    choice: TrailChoice::SecondChoice,
+                    ..
+                } => write!(f, "   2.")?,
+            }
+            let decision = decision.var;
+            write!(f,
+                "  x{} = {}",
+                decision.index,
+                match decision.sign {
+                    true => 'T',
+                    false => 'F',
+                }
+            )?;
+            if !self.deductions.is_empty() {
+                write!(f, "  -->  ");
+            }
+            writeln!(
+                f,
+                "{}",
+                self.deductions
+                    .iter()
+                    .filter(|(_, level)| *level == i)
+                    .map(|(var, _)| {
+                        format!(
+                            "x{} = {}",
+                            var.index,
+                            match var.sign {
+                                true => 'T',
+                                false => 'F',
+                            }
+                        )
+                    })
+                    .join(", ")
+            )?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
 struct Solver<H>
-where H: Heuristics, H: std::fmt::Debug {
+where
+    H: Heuristics,
+    H: std::fmt::Debug,
+{
     clauses: Vec<Clause>,
     assigments: Vec<VarSource>,
     deducted: usize,
@@ -338,6 +385,16 @@ mod tests {
         test_assingability("(~x1 v ~x2 v x0)", &[false, true]);
         test_assingability("(~x2 v x1 v ~x0)", &[true, false]);
 
+        test_conflit_assigability("(x0 v ~x1 v x2)", &[false, true, false]);
+        test_conflit_assigability("(~x1 v ~x0 v ~x2)", &[true, true, true]);
+        test_conflit_assigability("(x0 v ~x1 v x2)", &[false, true, false]);
+        test_conflit_assigability("(x2 v ~x1 v x0)", &[false, true, false]);
+        test_conflit_assigability("(x2 v ~x0 v ~x1)", &[true, true, false]);
+
+        test_unassigability("(x0 v x1)", &[]);
+        test_unassigability("(x1 v x0)", &[]);
+        test_unassigability("(x0 v x2 v x1)", &[true]);
+
         test_conflit_assigability("(x0 v x1)", &[false, false]);
         test_conflit_assigability("(~x0 v x1)", &[true, false]);
         test_conflit_assigability("(x0 v ~x1)", &[false, true]);
@@ -347,10 +404,6 @@ mod tests {
         test_conflit_assigability("(x1 v ~x0)", &[true, false]);
         test_conflit_assigability("(~x1 v x0)", &[false, true]);
         test_conflit_assigability("(~x1 v ~x0)", &[true, true]);
-
-        test_unassigability("(x0 v x1)", &[]);
-        test_unassigability("(x1 v x0)", &[]);
-        test_unassigability("(x0 v x2 v x1)", &[true]);
     }
 
     fn test_satisfability(expr: &str) {
@@ -394,7 +447,10 @@ struct Conflict {
 }
 
 impl<H> Solver<H>
-where H : Heuristics, H: Default, H: std::fmt::Debug
+where
+    H: Heuristics,
+    H: Default,
+    H: std::fmt::Debug,
 {
     fn init(clauses: Vec<Clause>) -> Result<Solver<H>, ()> {
         let nvars = clauses
@@ -416,9 +472,7 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
             assigments: vec![VarSource::Undef; nvars],
             trail: vec![],
             deductions: vec![],
-            cursor: Cursor{
-                position: 0,
-            },
+            cursor: Cursor { position: 0 },
             heuristics: H::default(),
         })
     }
@@ -444,8 +498,7 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
         let mut deductions = false;
         let position = self.cursor.position;
         let mut advance = 0;
-        match self
-            .clauses[position..]
+        match self.clauses[position..]
             .iter()
             .chain(self.clauses[..position].iter())
             .map(|clause| {
@@ -472,13 +525,13 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
                 );
             }
             Some(VarAssingable::Conflict(conflict)) => {
-                self.cursor.position = (self.cursor.position + advance)%self.clauses.len();
+                self.cursor.position = (self.cursor.position + advance) % self.clauses.len();
                 return Err(conflict);
             }
             Some(VarAssingable::Nothing) => (),
             None => (),
         }
-        self.cursor.position = (self.cursor.position + advance)%self.clauses.len();
+        self.cursor.position = (self.cursor.position + advance) % self.clauses.len();
         Ok(deductions)
     }
 
@@ -514,7 +567,9 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
                 }
                 Ok(_) => (),
                 Err(conflict) => {
-                    self.solve_conflict(conflict)?;
+                    if let Some(learnt_clause) = self.solve_conflict(conflict)? {
+                        self.clauses.push(learnt_clause);
+                    }
                 }
             }
         }
@@ -537,9 +592,15 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
         //debug_assert!(self.assigments[index] == VarSource::Undef, format!("x{} = {}", index, state));
         self.assigments[index] = VarSource::Fixed(state, index);
         if second {
-            self.trail.push(TrailState{choice: TrailChoice::SecondChoice, var:Var::new(index, state)});
+            self.trail.push(TrailState {
+                choice: TrailChoice::SecondChoice,
+                var: Var::new(index, state),
+            });
         } else {
-            self.trail.push(TrailState{choice: TrailChoice::FirstChoice, var:Var::new(index, state)});
+            self.trail.push(TrailState {
+                choice: TrailChoice::FirstChoice,
+                var: Var::new(index, state),
+            });
         }
     }
 
@@ -559,8 +620,14 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
         println!("Decision tree ------------------------");
         for (i, decision) in (0..).zip(self.trail.iter()) {
             match decision {
-                TrailState{choice: TrailChoice::FirstChoice, ..} => print!("   1."),
-                TrailState{choice: TrailChoice::SecondChoice, ..} => print!("   2."),
+                TrailState {
+                    choice: TrailChoice::FirstChoice,
+                    ..
+                } => print!("   1."),
+                TrailState {
+                    choice: TrailChoice::SecondChoice,
+                    ..
+                } => print!("   2."),
             }
             let decision = decision.var;
             print!(
@@ -690,12 +757,30 @@ where H : Heuristics, H: Default, H: std::fmt::Debug
 
         loop {
             match (self.pop_fixed_state(), self.trail.len()) {
-                (TrailState{choice: TrailChoice::SecondChoice, ..}, 0) => return Err(()),
-                (TrailState{choice: TrailChoice::FirstChoice, var: Var{index, sign}}, _) => {
+                (
+                    TrailState {
+                        choice: TrailChoice::SecondChoice,
+                        ..
+                    },
+                    0,
+                ) => return Err(()),
+                (
+                    TrailState {
+                        choice: TrailChoice::FirstChoice,
+                        var: Var { index, sign },
+                    },
+                    _,
+                ) => {
                     self.set_fixed_state(!(bool::from(sign)), index, true);
                     break;
                 }
-                (TrailState{choice: TrailChoice::SecondChoice, ..}, _) => (),
+                (
+                    TrailState {
+                        choice: TrailChoice::SecondChoice,
+                        ..
+                    },
+                    _,
+                ) => (),
             }
         }
         Ok(None)
