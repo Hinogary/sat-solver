@@ -1,4 +1,8 @@
+mod parsing;
+mod tests;
+
 use itertools::Itertools;
+use parsing::{str_to_clause, str_to_clauses};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Var {
@@ -129,10 +133,10 @@ impl std::fmt::Display for Clause {
         write!(f, "(")?;
         for lit in self.literals.iter().take(1) {
             write!(f, "{}", lit)?;
-        };
+        }
         for lit in self.literals.iter().skip(1) {
             write!(f, " v {}", lit)?;
-        };
+        }
         write!(f, ")")?;
         Ok(())
     }
@@ -153,7 +157,7 @@ impl Clause {
             match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
                 (_, true, MaybeBool(Some(true))) | (_, false, MaybeBool(Some(false))) => {
                     satisfied = true
-                }, // it is already satisfied
+                } // it is already satisfied
                 (None, _, MaybeBool(None)) => to_assign = Some(var),
                 (Some(_), _, MaybeBool(None)) => return VarAssingable::Nothing, // at least 2 vars are undefined
                 (_, true, MaybeBool(Some(false))) | (_, false, MaybeBool(Some(true))) => (),
@@ -217,6 +221,8 @@ enum TrailChoice {
     SecondChoice,
 }
 
+use TrailChoice::*;
+
 #[derive(Debug, Clone, Copy)]
 struct TrailState {
     var: Var,
@@ -224,9 +230,8 @@ struct TrailState {
 }
 
 trait Heuristics {
-    fn choose_variable_to_assign(assingables: &SearchState) -> Var;
-    fn select_variable(var: Var);
-    fn deselect_variable(var: Var);
+    fn select_variable(&mut self, searchstate: &SearchState) -> Var;
+    fn deselect_variable(&mut self, var: Var);
 }
 
 #[derive(Debug, Default)]
@@ -235,13 +240,16 @@ struct NaiveHeuristics {
 }
 
 impl Heuristics for NaiveHeuristics {
-    fn choose_variable_to_assign(search_state: &SearchState) -> Var {
-        unimplemented!()
+    fn select_variable(&mut self, searchstate: &SearchState) -> Var {
+        for (index, var) in (0..).zip(searchstate.assigments.iter()) {
+            if *var == VarSource::Undef {
+                return Var{index: index, sign: true};
+            }
+        }
+        panic!()
     }
-    fn select_variable(var: Var) {}
-    fn deselect_variable(var: Var) {}
+    fn deselect_variable(&mut self, var: Var) {}
 }
-
 
 impl std::fmt::Display for SearchState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -258,7 +266,8 @@ impl std::fmt::Display for SearchState {
                 } => write!(f, "   2.")?,
             }
             let decision = decision.var;
-            write!(f,
+            write!(
+                f,
                 "  x{} = {}",
                 decision.index,
                 match decision.sign {
@@ -300,8 +309,8 @@ struct SearchState {
 }
 
 impl SearchState {
-    fn new(nvars: usize) -> SearchState{
-        SearchState{
+    fn new(nvars: usize) -> SearchState {
+        SearchState {
             assigments: vec![VarSource::Undef; nvars],
             trail: vec![],
             deductions: vec![],
@@ -315,11 +324,44 @@ impl SearchState {
     fn assigment(&self, index: usize) -> &VarSource {
         &self.assigments[index]
     }
-    fn raise(&mut self){
 
+    fn raiseLevel(&mut self) -> TrailState {
+        match self.trail.pop() {
+            Some(x) => {
+                self.assigments[x.var.index] = VarSource::Undef;
+                self.strip_deductions();
+                x
+            }
+            _ => panic!(),
+        }
     }
+
+    fn fixLevel(&mut self, state: TrailState) {
+        self.assigments[state.var.index] = VarSource::Fixed(state.var.into_bool(), state.var.index);
+        self.trail.push(state);
+    }
+
     fn missing_assigments(&self) -> usize {
         self.assigments.len() - self.trail.len() - self.deductions.len()
+    }
+
+    /// Strips deductions up to trails.len()
+    fn strip_deductions(&mut self) {
+        loop {
+            match self.last_deduct_level() {
+                Some(level) if level >= self.trail_len() => self.pop_deduct(),
+                _ => break,
+            }
+        }
+    }
+
+    fn pop_deduct(&mut self) {
+        self.assigments[self.deductions.pop().unwrap().0.index] =
+            VarSource::Undef;
+    }
+
+    fn last_deduct_level(&mut self) -> Option<usize> {
+        self.deductions.last().map(|(_, level)| *level)
     }
 }
 
@@ -344,13 +386,6 @@ where
 struct Cursor {
     position: usize,
 }
-
-mod parsing;
-use parsing::{str_to_clause, str_to_clauses};
-
-mod tests;
-
-
 
 fn debug() -> () {
     ()
@@ -385,9 +420,7 @@ where
             clauses,
             searchstate: SearchState::new(nvars),
             heuristics: H::default(),
-            cursor: Cursor{
-                position: 0,
-            }
+            cursor: Cursor { position: 0 },
         })
     }
 
@@ -400,7 +433,8 @@ where
                     .literals
                     .iter()
                     .map(|lit| {
-                        self.searchstate.assigment(lit.index).into_maybe_bool() ^ !MaybeBool(Some(lit.sign))
+                        self.searchstate.assigment(lit.index).into_maybe_bool()
+                            ^ !MaybeBool(Some(lit.sign))
                     })
                     .fold(MaybeBool::falsee(), |acc, x| acc | x)
             })
@@ -450,24 +484,21 @@ where
     }
 
     fn save_deduct(&mut self, index: usize, assign: bool, vars: Vec<Var>, level: usize) {
-        debug_assert!(self.searchstate.assigments[index] == VarSource::Undef, debug());
+        debug_assert!(
+            self.searchstate.assigments[index] == VarSource::Undef,
+            debug()
+        );
         self.searchstate.assigments[index] = VarSource::Deducted(assign, vars, level);
-        self.searchstate.deductions.push((Var::new(index, assign), level));
-    }
-
-    fn pop_deduct(&mut self) {
-        self.searchstate.assigments[self.searchstate.deductions.pop().unwrap().0.index] = VarSource::Undef;
-    }
-
-    fn last_deduct_level(&mut self) -> Option<usize> {
-        self.searchstate.deductions.last().map(|(_, level)| *level)
+        self.searchstate
+            .deductions
+            .push((Var::new(index, assign), level));
     }
 
     fn solve(&mut self) -> Result<(), ()> {
         loop {
             let propagate = self.propagate();
             #[cfg(debug_assertions)]
-            self.visualize_decisions();
+            println!("{}", self.searchstate);
             match propagate {
                 Ok(new_deductions) if new_deductions == false => {
                     // are all variables fixed?
@@ -488,101 +519,7 @@ where
     }
 
     fn fix_some_var(&mut self) {
-        debug_assert!(
-            self.searchstate.deductions.len() + self.searchstate.trail.len() < self.searchstate.assigments.len(),
-            format!("{:#?}", self)
-        );
-        for (index, var) in (0..).zip(&mut self.searchstate.assigments) {
-            if *var == VarSource::Undef {
-                self.set_fixed_state(true, index, false);
-                break;
-            }
-        }
-    }
-
-    fn set_fixed_state(&mut self, state: bool, index: usize, second: bool) {
-        //debug_assert!(self.assigments[index] == VarSource::Undef, format!("x{} = {}", index, state));
-        self.searchstate.assigments[index] = VarSource::Fixed(state, index);
-        if second {
-            self.searchstate.trail.push(TrailState {
-                choice: TrailChoice::SecondChoice,
-                var: Var::new(index, state),
-            });
-        } else {
-            self.searchstate.trail.push(TrailState {
-                choice: TrailChoice::FirstChoice,
-                var: Var::new(index, state),
-            });
-        }
-    }
-
-    fn pop_fixed_state(&mut self) -> TrailState {
-        match self.searchstate.trail.pop() {
-            Some(x) => {
-                self.searchstate.assigments[x.var.index] = VarSource::Undef;
-                self.strip_deductions();
-                x
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[cfg(debug_assertions)]
-    fn visualize_decisions(&self) {
-        println!("Decision tree ------------------------");
-        for (i, decision) in (0..).zip(self.searchstate.trail.iter()) {
-            match decision {
-                TrailState {
-                    choice: TrailChoice::FirstChoice,
-                    ..
-                } => print!("   1."),
-                TrailState {
-                    choice: TrailChoice::SecondChoice,
-                    ..
-                } => print!("   2."),
-            }
-            let decision = decision.var;
-            print!(
-                "  x{} = {}",
-                decision.index,
-                match decision.sign {
-                    true => 'T',
-                    false => 'F',
-                }
-            );
-            let mut first = true;
-            println!(
-                "{}",
-                self.searchstate.deductions
-                    .iter()
-                    .filter(|(_, level)| *level == i)
-                    .map(|(var, _)| {
-                        if first {
-                            first = false;
-                            print!(" ==> ");
-                        }
-                        format!(
-                            "x{} = {}",
-                            var.index,
-                            match var.sign {
-                                true => 'T',
-                                false => 'F',
-                            }
-                        )
-                    })
-                    .join(", ")
-            )
-        }
-    }
-
-    /// Strips deductions up to trails.len()
-    fn strip_deductions(&mut self) {
-        loop {
-            match self.last_deduct_level() {
-                Some(level) if level >= self.searchstate.trail_len() => self.pop_deduct(),
-                _ => break,
-            }
-        }
+        self.searchstate.fixLevel(TrailState{var: self.heuristics.select_variable(&self.searchstate), choice: FirstChoice});
     }
 
     /// Conflict is clause, where all Variables are assigned, but Clause forms Contradiction
@@ -605,7 +542,9 @@ where
         let mut implied_level = None;
         for var in conflict.clause.literals {
             conflict_plane.insert(var, true);
-            let level = self.searchstate.assigment(var.index)
+            let level = self
+                .searchstate
+                .assigment(var.index)
                 .into_conflict_level()
                 .unwrap_or_else(|| panic!("{:?}", self.searchstate.assigment(var.index)));
             if level >= last_level.map(|x| x.0).unwrap_or(0) {
@@ -664,11 +603,11 @@ where
         // implication level -> change mind
 
         (implied_level..=self.searchstate.trail_len() - 2)
-            .map(|_| self.searchstate.raise())
+            .map(|_| self.searchstate.raiseLevel())
             .last();
 
         loop {
-            match (self.pop_fixed_state(), self.searchstate.trail_len()) {
+            match (self.searchstate.raiseLevel(), self.searchstate.trail_len()) {
                 (
                     TrailState {
                         choice: TrailChoice::SecondChoice,
@@ -683,7 +622,7 @@ where
                     },
                     _,
                 ) => {
-                    self.set_fixed_state(!(bool::from(sign)), index, true);
+                    self.searchstate.fixLevel(TrailState{var: Var{index, sign: !(bool::from(sign))}, choice: SecondChoice});
                     break;
                 }
                 (
