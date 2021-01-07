@@ -112,7 +112,7 @@ enum DimacsToken {
     Error,
 }
 
-pub fn dimacs(dimacs: &str) -> Vec<Clause> {
+pub fn dimacs_to_clausules(dimacs: &str) -> Vec<Clause> {
     use DimacsToken::*;
     let mut lex = DimacsToken::lexer(dimacs);
     match lex.next() {
@@ -219,7 +219,7 @@ mod tests {
             -3 -4 0
             ";
         assert!(
-            dimacs(input)
+            dimacs_to_clausules(input)
                 == vec![
                     Clause {
                         literals: vec![
