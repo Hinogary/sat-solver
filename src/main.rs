@@ -10,13 +10,10 @@ mod var;
 use var::*;
 
 use itertools::Itertools;
-pub use parsing::{
-    str_to_clause,
-    str_to_clauses,
-    dimacs_to_clausules,
-};
+pub use parsing::{dimacs_to_clausules, str_to_clause, str_to_clauses};
 
-enum ProblemType {
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProblemType {
     Unweighted(Vec<Clause>),
     Weighted(Vec<Clause>, Vec<usize>),
 }
@@ -75,9 +72,7 @@ impl Clause {
         println!("{} {:?}", satisfied, to_assign);
         */
         match (satisfied, to_assign) {
-            (false, Some(&to_assign)) => {
-                VarAssingable::Assingable(to_assign)
-            }
+            (false, Some(&to_assign)) => VarAssingable::Assingable(to_assign),
             (true, _) => VarAssingable::Nothing,
             (false, None) => VarAssingable::Conflict,
         }
@@ -155,24 +150,29 @@ impl std::fmt::Display for Trail {
             match decision {
                 TrailState {
                     reason: ReasonLock::Fixed(choice),
-                    var
+                    var,
                 } => {
-                    write!(f, "\nchoose x{} = {}   {}.", var.index,
+                    write!(
+                        f,
+                        "\nchoose x{} = {}   {}.",
+                        var.index,
                         match var.sign {
                             true => "T",
                             false => "F",
                         },
-                        match choice{
+                        match choice {
                             TrailChoice::FirstChoice => "1",
                             TrailChoice::SecondChoice => "2",
                         }
                     )?;
-                },
-                TrailState{
+                }
+                TrailState {
                     reason: ReasonLock::Deducted(source),
-                    var
+                    var,
                 } => {
-                    write!(f, "   -> x{} = {} ({})",
+                    write!(
+                        f,
+                        "   -> x{} = {} ({})",
                         var.index,
                         match var.sign {
                             true => "T",
@@ -189,21 +189,22 @@ impl std::fmt::Display for Trail {
 }
 
 #[derive(Debug)]
-struct LearntClause{
+struct LearntClause {
     clause: usize,
     activity: f32,
 }
 
 #[derive(Debug, Clone)]
-struct Watcher{
+struct Watcher {
     for_true: Vec<usize>,
     for_false: Vec<usize>,
 }
 
 // this is where weighted SAT is implemented
 trait SelectionHeuristics
-    where Self: Sized,
-          Self: std::fmt::Debug,
+where
+    Self: Sized,
+    Self: std::fmt::Debug,
 {
     fn new(nvars: usize) -> Self;
     fn select_variable(solver: &mut Solver<Self>) -> Var;
@@ -216,25 +217,24 @@ trait SelectionHeuristics
 }
 
 #[derive(Debug)]
-struct NaiveSelectionHeuristics{
-    index: usize
+struct NaiveSelectionHeuristics {
+    index: usize,
 }
 
 impl SelectionHeuristics for NaiveSelectionHeuristics {
-    fn new(_: usize) -> Self{
-        NaiveSelectionHeuristics{
-            index: 0,
-        }
+    fn new(_: usize) -> Self {
+        NaiveSelectionHeuristics { index: 0 }
     }
-    fn select_variable(solver: &mut Solver<Self>) -> Var{
+    fn select_variable(solver: &mut Solver<Self>) -> Var {
         let mut index = solver.sel_heuristics.index;
         //fix first unassigned var
         while solver.assigments[index] != VarSource::Undef {
             index = (index + 1) % solver.assigments.len()
         }
-        let assign = solver.watchers[index].for_true.len() <= solver.watchers[index].for_false.len();
+        let assign =
+            solver.watchers[index].for_true.len() <= solver.watchers[index].for_false.len();
         solver.sel_heuristics.index = index;
-        Var{
+        Var {
             sign: assign,
             index: index,
         }
@@ -243,22 +243,21 @@ impl SelectionHeuristics for NaiveSelectionHeuristics {
     fn assign(&mut self, _: Var, _: ReasonLock) -> bool {
         true
     }
-    fn deassign(&mut self, _: Var) {
-
-    }
+    fn deassign(&mut self, _: Var) {}
     // found solution and asks if final solution
-    fn final_solution(&mut self, _: &[VarSource]) -> bool{
+    fn final_solution(&mut self, _: &[VarSource]) -> bool {
         true
     }
-    fn solution(solver: &Solver<Self>) -> Vec<bool>{
+    fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.assigments.iter().map(|x| x.into_bool()).collect()
     }
 }
 
 #[derive(Debug)]
 struct Solver<SH>
-    where SH : SelectionHeuristics,
-          SH : std::fmt::Debug,
+where
+    SH: SelectionHeuristics,
+    SH: std::fmt::Debug,
 {
     clauses: Vec<Clause>,
     given_len: usize, //clauses with index > are learnt clauses
@@ -271,7 +270,8 @@ struct Solver<SH>
 }
 
 impl<SH> Solver<SH>
-    where SH : SelectionHeuristics,
+where
+    SH: SelectionHeuristics,
 {
     fn init(clauses: Vec<Clause>) -> Result<Solver<SH>, ()> {
         let nvars = clauses
@@ -287,29 +287,35 @@ impl<SH> Solver<SH>
             .max()
             .unwrap_or(0)
             + 1;
-        let mut watchers = vec![Watcher{for_true:Vec::new(), for_false:Vec::new()}; nvars];
+        let mut watchers = vec![
+            Watcher {
+                for_true: Vec::new(),
+                for_false: Vec::new()
+            };
+            nvars
+        ];
         let mut trail = Trail(Vec::new());
         let mut assigments = vec![VarSource::Undef; nvars];
         for (clause_id, clause) in (0..).zip(clauses.iter()) {
             match clause.literals[..] {
                 [var] => {
                     //fix var
-                    trail.0.push(TrailState{
+                    trail.0.push(TrailState {
                         var: var,
                         reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
                     });
                     assigments[var.index] = VarSource::Fixed(var.sign, trail.0.len());
-                },
+                }
                 [] => (), //{return Err(())}, // empty-clause -> unsatisfable
                 ref vars => {
                     //add watchers
-                    for var in vars{
-                        match var.sign{
+                    for var in vars {
+                        match var.sign {
                             true => watchers[var.index].for_false.push(clause_id),
                             false => watchers[var.index].for_true.push(clause_id),
                         }
                     }
-                },
+                }
             }
         }
         let given_len = clauses.len();
@@ -337,14 +343,12 @@ impl<SH> Solver<SH>
     fn test_satisfied(&self, assigns: &[bool]) -> bool {
         self.clauses
             .iter()
-            .take(self.given_len)
+            .take(self.given_len) //skip learned
             .map(|clause| {
                 clause
                     .literals
                     .iter()
-                    .map(|lit| {
-                        assigns[lit.index] ^ !lit.sign
-                    })
+                    .map(|lit| assigns[lit.index] ^ !lit.sign)
                     .fold(false, |acc, x| acc | x)
             })
             .fold(true, |acc, x| acc & x)
@@ -355,11 +359,8 @@ impl<SH> Solver<SH>
         //println!("propagate: {}", to_propagate);
         let mut deducted = 0;
         match self.trail.0[to_propagate] {
-            TrailState{
-                var: Var{
-                    index,
-                    sign,
-                },
+            TrailState {
+                var: Var { index, sign },
                 ..
             } => {
                 let watches = match sign {
@@ -368,22 +369,25 @@ impl<SH> Solver<SH>
                 };
                 let mut conflicts = Vec::new();
                 for w in watches {
-                    if self.locked[*w] {continue}
+                    if self.locked[*w] {
+                        continue;
+                    }
                     match self.clauses[*w].assingable(&self.assigments[..]) {
                         VarAssingable::Assingable(var) => {
                             let reason = ReasonLock::Deducted(*w);
-                            self.trail.0.push(TrailState{var, reason});
-                            self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level - 1);
+                            self.trail.0.push(TrailState { var, reason });
+                            self.assigments[var.index] =
+                                VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
                             self.sel_heuristics.assign(var, reason);
                             deducted += 1
-                        },
+                        }
                         VarAssingable::Conflict => conflicts.push(*w),
                         VarAssingable::Nothing => (),
                     }
                 }
                 if !conflicts.is_empty() {
-                    return Err(conflicts)
+                    return Err(conflicts);
                 }
             }
         }
@@ -396,16 +400,19 @@ impl<SH> Solver<SH>
         let mut found_solution = false;
         loop {
             //satisfiable and assigned
-            if self.trail.0.len() == self.assigments.len(){
-                if self.sel_heuristics.final_solution(&self.assigments){
-                    return Ok(SH::solution(self))
+            if self.trail.0.len() == self.assigments.len() {
+                if self.sel_heuristics.final_solution(&self.assigments) {
+                    return Ok(SH::solution(self));
                 } else {
                     found_solution = true;
                 }
             }
             let var_to_fix = SH::select_variable(self);
             let reason = ReasonLock::Fixed(TrailChoice::FirstChoice);
-            self.trail.0.push(TrailState{reason, var: var_to_fix});
+            self.trail.0.push(TrailState {
+                reason,
+                var: var_to_fix,
+            });
             self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
             self.level += 1;
             self.sel_heuristics.assign(var_to_fix, reason);
@@ -414,71 +421,79 @@ impl<SH> Solver<SH>
                 match self.propagate(to_propagate) {
                     Ok(_) => to_propagate += 1,
                     Err(conflicts) => {
-                        match self.resolve_conflicts(conflicts){
-                            Err(()) => if found_solution {
-                                return Ok(SH::solution(self))
-                            } else {
-                                return Err(())
+                        match self.resolve_conflicts(conflicts) {
+                            Err(()) => {
+                                if found_solution {
+                                    return Ok(SH::solution(self));
+                                } else {
+                                    return Err(());
+                                }
                             }
                             _ => (),
                         };
-                        to_propagate = self.trail.0.len()-1
+                        to_propagate = self.trail.0.len() - 1
                     }
                 }
             }
         }
     }
 
-    fn append_new_clause(&mut self, clause: Clause){
+    fn append_new_clause(&mut self, clause: Clause) {
         let clause_id = self.clauses.len();
         match clause.literals[..] {
             [_] => panic!(),
             [] => panic!(), // empty-clause -> unsatisfable
             ref vars => {
                 //add watchers
-                for var in vars{
-                    match var.sign{
+                for var in vars {
+                    match var.sign {
                         true => self.watchers[var.index].for_false.push(clause_id),
                         false => self.watchers[var.index].for_true.push(clause_id),
                     }
                 }
-            },
+            }
         }
         self.clauses.push(clause);
         self.locked.push(false);
     }
 
-    fn resolve_conflicts(&mut self, conflicts: Vec<usize>) -> Result<(), ()>{
+    fn resolve_conflicts(&mut self, conflicts: Vec<usize>) -> Result<(), ()> {
         // learns new clausule from conflict
 
         // for each conflict find decision level and try to divide new clause
 
-        let conflict_level = self.level-1; //assumes full propagate resolution
-        // select higest implication level -> at least this need to be flipped (if not second choice)
+        let conflict_level = self.level - 1; //assumes full propagate resolution
+                                             // select higest implication level -> at least this need to be flipped (if not second choice)
         let implication_level = conflicts
             .iter()
             .map(|&conflict_id| &self.clauses[conflict_id])
             .map(|clause| {
                 let mut skipped_conflict_level = false;
-                clause.literals.iter().filter_map(|lit|{
-                    let c_conflict_level = self.assigments[lit.index].into_conflict_level().unwrap();
-                    if skipped_conflict_level {
-                        Some(c_conflict_level)
-                    } else if conflict_level == c_conflict_level{
-                        skipped_conflict_level = true;
-                        None
-                    } else {
-                        Some(c_conflict_level)
-                    }
-                }).max().unwrap_or(0)
-            }
-            ).min()
+                clause
+                    .literals
+                    .iter()
+                    .filter_map(|lit| {
+                        let c_conflict_level =
+                            self.assigments[lit.index].into_conflict_level().unwrap();
+                        if skipped_conflict_level {
+                            Some(c_conflict_level)
+                        } else if conflict_level == c_conflict_level {
+                            skipped_conflict_level = true;
+                            None
+                        } else {
+                            Some(c_conflict_level)
+                        }
+                    })
+                    .max()
+                    .unwrap_or(0)
+            })
+            .min()
             .unwrap();
 
         //println!("==================\nconflicts {}:\n==================", conflicts.len());
         // on too much conflicts do not try even learn
         if conflicts.len() < 10 {
-            for conflict_id in conflicts{
+            for conflict_id in conflicts {
                 let clause = &self.clauses[conflict_id];
                 let mut new_clause = clause.clone();
 
@@ -489,14 +504,15 @@ impl<SH> Solver<SH>
                 println!("level: {}", self.level);
                 */
 
-
-                if implication_level == 0 && match self.trail.0[0] {
-                    TrailState{
-                        reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                        ..
-                    } => true,
-                    _ => false,
-                } {
+                if implication_level == 0
+                    && match self.trail.0[0] {
+                        TrailState {
+                            reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+                            ..
+                        } => true,
+                        _ => false,
+                    }
+                {
                     return Err(());
                 }
 
@@ -506,24 +522,28 @@ impl<SH> Solver<SH>
                 let mut raised = 0;
                 let mut i = 0;
                 let mut above_level = 0;
-                while i < new_clause.literals.len(){
+                while i < new_clause.literals.len() {
                     let index = new_clause.literals[i].index;
                     let assign = &self.assigments[index];
                     match assign {
                         VarSource::Deducted(_, source, level) if *level <= implication_level => {
-                            self.clauses[*source].literals.iter().filter(|lit| lit.index != index).for_each(|lit| new_clause.literals.push(*lit));
+                            self.clauses[*source]
+                                .literals
+                                .iter()
+                                .filter(|lit| lit.index != index)
+                                .for_each(|lit| new_clause.literals.push(*lit));
                             new_clause.literals[i] = new_clause.literals.pop().unwrap();
                             raised += 1;
-                        },
+                        }
                         VarSource::Fixed(_, level) => {
                             if *level > implication_level {
                                 above_level += 1;
                             }
-                            i+=1
-                        },
+                            i += 1
+                        }
                         VarSource::Deducted(_, _, _) => {
                             above_level += 1;
-                            i+=1
+                            i += 1
                         }
                         _ => i += 1,
                     }
@@ -533,10 +553,12 @@ impl<SH> Solver<SH>
                 new_clause.literals.sort_by(|a, b| a.index.cmp(&b.index));
                 new_clause.literals = new_clause.literals.into_iter().dedup().collect();
 
-
                 // how to decide if clause is good?
-                if new_clause.literals.len() > 5 || raised < 2 || above_level < new_clause.literals.len()-3{
-                    continue
+                if new_clause.literals.len() > 5
+                    || raised < 2
+                    || above_level < new_clause.literals.len() - 3
+                {
+                    continue;
                 }
 
                 self.append_new_clause(new_clause);
@@ -547,28 +569,28 @@ impl<SH> Solver<SH>
         //undo trail and switch most recent choice, which is possible
         while match self.trail.0.last().cloned() {
             // undo trail
-            Some(TrailState{
+            Some(TrailState {
                 var,
-                reason: ReasonLock::Deducted(source)
-            }) if self.level > implication_level+1 => {
+                reason: ReasonLock::Deducted(source),
+            }) if self.level > implication_level + 1 => {
                 self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.locked[source] = false;
                 true
-            },
-            Some(TrailState{
+            }
+            Some(TrailState {
                 var,
-                reason: ReasonLock::Fixed(_)
-            }) if self.level > implication_level+1 => {
+                reason: ReasonLock::Fixed(_),
+            }) if self.level > implication_level + 1 => {
                 //println!("undo: {}", var);
                 self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.level -= 1;
                 true
-            },
-            Some(TrailState{
+            }
+            Some(TrailState {
                 var,
                 reason: ReasonLock::Deducted(source),
             }) => {
@@ -577,24 +599,24 @@ impl<SH> Solver<SH>
                 self.assigments[var.index] = VarSource::Undef;
                 self.locked[source] = false;
                 true
-            },
+            }
 
             //switch
-            Some(TrailState{
+            Some(TrailState {
                 var,
                 reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
             }) => {
                 //println!("switch: {}", !var);
                 self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
-                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level-1);
+                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level - 1);
                 let reason = ReasonLock::Fixed(TrailChoice::SecondChoice);
-                self.trail.0.push(TrailState{var: !var, reason});
+                self.trail.0.push(TrailState { var: !var, reason });
                 self.sel_heuristics.assign(!var, reason);
                 false
             }
             //exhausted option
-            Some(TrailState{
+            Some(TrailState {
                 var,
                 reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
             }) => {
@@ -606,17 +628,15 @@ impl<SH> Solver<SH>
                 true
             }
             None => return Err(()), // exhausted choices
-        } {/*empty body*/}
+        } { /*empty body*/ }
         Ok(())
     }
 
     fn string_analyze_conflicts(&self) -> String {
         let mut st = "Conflicts:".to_string();
-        for clause in &self.clauses{
+        for clause in &self.clauses {
             match clause.assingable(&self.assigments[..]) {
-                VarAssingable::Conflict => {
-                    st = format!("{}\n{}", st, clause)
-                },
+                VarAssingable::Conflict => st = format!("{}\n{}", st, clause),
                 _ => (),
             }
         }
@@ -626,13 +646,24 @@ impl<SH> Solver<SH>
 
 fn main() {
     let opts = Opts::from_args();
-    let clauses = dimacs_to_clausules(std::fs::read_to_string(opts.input_task).unwrap().as_str());
-    let mut solver = Solver::<NaiveSelectionHeuristics>::init(clauses).unwrap();
-    let assigns = solver.solve().unwrap();
-    assert!(
-        solver.test_satisfied(&assigns[..]) == true,
-        format!("{:#?}\n{}\n{}\n{:?}", solver, solver.trail, solver.string_analyze_conflicts(), solver.test_satisfied(&assigns[..]))
-    );
+    let problem = dimacs_to_clausules(std::fs::read_to_string(opts.input_task).unwrap().as_str());
+    match problem {
+        ProblemType::Unweighted(clauses) => {
+            let mut solver = Solver::<NaiveSelectionHeuristics>::init(clauses).unwrap();
+            let assigns = solver.solve().unwrap();
+            assert!(
+                solver.test_satisfied(&assigns[..]) == true,
+                format!(
+                    "{:#?}\n{}\n{}\n{:?}",
+                    solver,
+                    solver.trail,
+                    solver.string_analyze_conflicts(),
+                    solver.test_satisfied(&assigns[..])
+                )
+            );
+        }
+        ProblemType::Weighted(_, _) => unimplemented!(),
+    }
     //println!("{:#?}", solver);
 }
 

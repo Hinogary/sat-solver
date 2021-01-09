@@ -25,7 +25,7 @@ enum Token {
     Error,
 }
 
-use super::{Clause, Var};
+use super::{Clause, ProblemType, Var};
 
 pub fn str_to_clauses(clauses: &str) -> Vec<Clause> {
     use Token::*;
@@ -118,15 +118,19 @@ enum DimacsToken {
     Error,
 }
 
-pub fn dimacs_to_clausules(dimacs: &str) -> Vec<Clause> {
+pub fn dimacs_to_clausules(dimacs: &str) -> ProblemType {
     use DimacsToken::*;
     let mut lex = DimacsToken::lexer(dimacs);
+    let mut weighted = false;
     match lex.next() {
         Some(Problem) => (),
         _ => panic!("Expected 'p', found: '{}'", lex.slice()),
     }
     match lex.next() {
         Some(CNF) => (),
+        Some(MWCNF) => {
+            weighted = true;
+        }
         _ => (),
     }
     match lex.next() {
@@ -137,6 +141,28 @@ pub fn dimacs_to_clausules(dimacs: &str) -> Vec<Clause> {
         Some(Number) => (), //variables
         _ => panic!("Expected Number, found: '{}'", lex.slice()),
     }
+    let weights = if weighted {
+        match lex.next() {
+            Some(Weights) => (),
+            _ => panic!("Expected w, found: '{}'", lex.slice()),
+        }
+        let mut weights = Vec::new();
+        loop {
+            match lex.next() {
+                Some(Number) => {
+                    let num = lex.slice().parse::<usize>().unwrap();
+                    if num == 0 {
+                        break;
+                    }
+                    weights.push(num)
+                }
+                _ => panic!("Expected Number, found: '{}'", lex.slice()),
+            }
+        }
+        Some(weights)
+    } else {
+        None
+    };
     let mut clauses: Vec<Clause> = vec![];
     let mut current_clause = Clause::empty();
     loop {
@@ -144,7 +170,7 @@ pub fn dimacs_to_clausules(dimacs: &str) -> Vec<Clause> {
             Some(Number) => {
                 let num = lex.slice().parse::<isize>().unwrap();
                 if num == 0 {
-                    if !current_clause.literals.is_empty(){
+                    if !current_clause.literals.is_empty() {
                         clauses.push(current_clause);
                     }
                     current_clause = Clause::empty();
@@ -156,7 +182,11 @@ pub fn dimacs_to_clausules(dimacs: &str) -> Vec<Clause> {
             _ => panic!("Expected Number, found: '{}'", lex.slice()),
         }
     }
-    return clauses;
+    if weighted {
+        ProblemType::Weighted(clauses, weights.unwrap())
+    } else {
+        ProblemType::Unweighted(clauses)
+    }
 }
 
 #[cfg(test)]
@@ -230,7 +260,7 @@ mod tests {
             ";
         assert!(
             dimacs_to_clausules(input)
-                == vec![
+                == ProblemType::Unweighted(vec![
                     Clause {
                         literals: vec![
                             Var {
@@ -319,8 +349,8 @@ mod tests {
                             },
                         ],
                     }
-                ],
-                format!("{:#?}", dimacs_to_clausules(input))
+                ]),
+            format!("{:#?}", dimacs_to_clausules(input))
         );
     }
 }

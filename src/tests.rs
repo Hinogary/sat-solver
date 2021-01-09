@@ -83,11 +83,11 @@ mod tests {
         test_conflit_assigability("(~x1 v ~x0)", &[true, true]);
     }
 
-    fn test_satisfability(expr: &str) {
+    fn test_satisfability<H: SelectionHeuristics>(expr: &str) {
         println!("------------------------------------------------");
         println!("{}", expr);
         let clauses = str_to_clauses(expr);
-        let mut solver = Solver::<NaiveSelectionHeuristics>::init(clauses).unwrap();
+        let mut solver = Solver::<H>::init(clauses).unwrap();
         let assigns = solver.solve().unwrap();
         assert!(
             solver.test_satisfied(&assigns) == true,
@@ -95,21 +95,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_solver() {
-        test_satisfability("(x0 v x1) ^ (x1 v ~x2 v x3) ^ (~x0 v ~x3)");
+    fn test_solver_satisfability<H: SelectionHeuristics>() {
+        test_satisfability::<H>("(x0 v x1) ^ (x1 v ~x2 v x3) ^ (~x0 v ~x3)");
 
-        test_satisfability("(x0 v x1 v x2) ^ (~x0 v ~x1 v x2) ^ (~x0 v x1 v x2) ^ (x0 v ~x1 v x2)");
-        test_satisfability("(x0 v x1 v x2) ^ (~x0 v x1 v ~x2) ^ (~x0 v x1 v x2) ^ (x0 v x1 v ~x2)");
-        test_satisfability(
+        test_satisfability::<H>(
+            "(x0 v x1 v x2) ^ (~x0 v ~x1 v x2) ^ (~x0 v x1 v x2) ^ (x0 v ~x1 v x2)",
+        );
+        test_satisfability::<H>(
+            "(x0 v x1 v x2) ^ (~x0 v x1 v ~x2) ^ (~x0 v x1 v x2) ^ (x0 v x1 v ~x2)",
+        );
+        test_satisfability::<H>(
             "(x0 v x1 v ~x2) ^ (~x0 v ~x1 v ~x2) ^ (~x0 v x1 v ~x2) ^ (x0 v ~x1 v ~x2)",
         );
-        test_satisfability(
+        test_satisfability::<H>(
             "(x0 v ~x1 v x2) ^ (~x0 v ~x1 v ~x2) ^ (~x0 v ~x1 v x2) ^ (x0 v ~x1 v ~x2)",
         );
-        test_satisfability("(x0 v x1 v x2) ^ (x0 v ~x1 v x2) ^ (x0 v x1 v ~x2) ^ (x0 v ~x1 v ~x2)");
-        test_satisfability(
+        test_satisfability::<H>(
+            "(x0 v x1 v x2) ^ (x0 v ~x1 v x2) ^ (x0 v x1 v ~x2) ^ (x0 v ~x1 v ~x2)",
+        );
+        test_satisfability::<H>(
             "(~x0 v x1 v x2) ^ (~x0 v ~x1 v x2) ^ (~x0 v x1 v ~x2) ^ (~x0 v ~x1 v ~x2)",
         );
+    }
+
+    #[test]
+    fn test_solver() {
+        test_solver_satisfability::<NaiveSelectionHeuristics>();
     }
 }
