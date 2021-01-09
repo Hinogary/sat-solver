@@ -120,12 +120,6 @@ impl std::fmt::Display for Trail {
     }
 }
 
-#[derive(Debug)]
-struct LearntClause {
-    clause: usize,
-    activity: f32,
-}
-
 #[derive(Debug, Clone)]
 struct Watcher {
     for_true: Vec<usize>,
