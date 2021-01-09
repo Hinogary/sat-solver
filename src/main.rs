@@ -1,7 +1,9 @@
+use structopt::StructOpt;
+
 mod parsing;
 mod tests;
 
-//use itertools::Itertools;
+use itertools::Itertools;
 pub use parsing::{
     str_to_clause,
     str_to_clauses,
@@ -403,7 +405,7 @@ impl Solver
                                 var: var,
                                 reason: ReasonLock::Deducted(*w),
                             });
-                            self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level);
+                            self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
                             deducted += 1
                         },
@@ -481,78 +483,117 @@ impl Solver
 
         // for each conflict find decision level and try to divide new clause
 
-        let conflict_level = self.level; //assumes full propagate resolution
+        let conflict_level = self.level-1; //assumes full propagate resolution
         // select higest implication level -> at least this need to be flipped (if not second choice)
         let implication_level = conflicts
             .iter()
             .map(|&conflict_id| &self.clauses[conflict_id])
-            .map(|clause| clause
-                .literals
-                .iter()
-                .filter_map(
-                    |lit| match self.assigments[lit.index].into_conflict_level().unwrap() {
-                        x if x == conflict_level => None,
-                        x => Some(x),
-                }).min()
-                .unwrap_or(0)
+            .map(|clause| {
+                let mut skipped_conflict_level = false;
+                clause.literals.iter().filter_map(|lit|{
+                    let c_conflict_level = self.assigments[lit.index].into_conflict_level().unwrap();
+                    if skipped_conflict_level {
+                        Some(c_conflict_level)
+                    } else if conflict_level == c_conflict_level{
+                        skipped_conflict_level = true;
+                        None
+                    } else {
+                        Some(c_conflict_level)
+                    }
+                }).max().unwrap_or(0)
+            }
             ).min()
             .unwrap();
 
-        for conflict_id in conflicts{
-            let clause = &self.clauses[conflict_id];
-            let mut new_clause = clause.clone();
+        //println!("==================\nconflicts {}:\n==================", conflicts.len());
+        // on too much conflicts do not try even learn
+        if conflicts.len() < 3 {
+            for conflict_id in conflicts{
+                let clause = &self.clauses[conflict_id];
+                let mut new_clause = clause.clone();
 
-            /*
-            println!("conflict:");
-            println!("{}", self.trail);
-            println!("{}", clause);
-            */
+                /*
+                println!("{:?}", self.assigments);
+                println!("{}", clause);
+                println!("impl_lvl: {}, conflict_lvl: {}", implication_level, conflict_level);
+                println!("level: {}", self.level);
+                */
 
 
-            if implication_level == 0 && match self.trail.0[0] {
-                TrailState{
-                    reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                    ..
-                } => true,
-                _ => false,
-            } {
-                return Err(());
-            }
-
-            // (!x1 ^ !x2 ) = > x3
-            // change x3 to x1 v x2
-            // if x3 is having level >= implication_level
-            let mut i = 0;
-            let mut fixed = 0;
-            while i < new_clause.literals.len(){
-                let index = new_clause.literals[i].index;
-                let assign = &self.assigments[index];
-                match assign {
-                    VarSource::Deducted(_, source, level) if *level <= implication_level => {
-                        self.clauses[*source].literals.iter().filter(|lit| lit.index != index).for_each(|lit| new_clause.literals.push(*lit));
-                        new_clause.literals[i] = new_clause.literals.pop().unwrap();
-                    },
-                    VarSource::Fixed(_, _) => {fixed += 1; i+=1},
-                    _ => i += 1,
+                if implication_level == 0 && match self.trail.0[0] {
+                    TrailState{
+                        reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+                        ..
+                    } => true,
+                    _ => false,
+                } {
+                    return Err(());
                 }
-            }
 
-            //new clause just from fixed .. skip
-            if fixed == new_clause.literals.len(){
-                continue
-            }
+                // (!x1 ^ !x2 ) = > x3
+                // change x3 to x1 v x2
+                // if x3 is having level >= implication_level
+                let mut raised = 0;
+                let mut i = 0;
+                let mut above_level = 0;
+                while i < new_clause.literals.len(){
+                    let index = new_clause.literals[i].index;
+                    let assign = &self.assigments[index];
+                    match assign {
+                        VarSource::Deducted(_, source, level) if *level <= implication_level => {
+                            self.clauses[*source].literals.iter().filter(|lit| lit.index != index).for_each(|lit| new_clause.literals.push(*lit));
+                            new_clause.literals[i] = new_clause.literals.pop().unwrap();
+                            raised += 1;
+                        },
+                        VarSource::Fixed(_, level) => {
+                            if *level > implication_level {
+                                above_level += 1;
+                            }
+                            i+=1
+                        },
+                        VarSource::Deducted(_, _, _) => {
+                            above_level += 1;
+                            i+=1
+                        }
+                        _ => i += 1,
+                    }
+                }
 
-            self.append_new_clause(new_clause);
+                // deduplication in clause
+                new_clause.literals.sort_by(|a, b| a.index.cmp(&b.index));
+                new_clause.literals = new_clause.literals.into_iter().dedup().collect();
+
+
+                // how to decide if clause is good?
+                if new_clause.literals.len() > 5 || raised < 2 || above_level < new_clause.literals.len()-3{
+                    continue
+                }
+
+                self.append_new_clause(new_clause);
+            }
         }
 
+        //println!("{}", self.trail);
         //undo trail and switch most recent choice, which is possible
         while match self.trail.0.last().cloned() {
+            // undo trail
             Some(TrailState{
                 var,
-                ..
-            }) if self.level < implication_level => {
+                reason: ReasonLock::Deducted(source)
+            }) if self.level > implication_level+1 => {
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
+                self.locked[source] = false;
+                true
+            },
+            Some(TrailState{
+                var,
+                reason: ReasonLock::Fixed(_)
+            }) if self.level > implication_level+1 => {
+                //println!("undo: {}", var);
+                self.trail.0.pop();
+                self.assigments[var.index] = VarSource::Undef;
+                self.level -= 1;
                 true
             },
             Some(TrailState{
@@ -564,23 +605,27 @@ impl Solver
                 self.locked[source] = false;
                 true
             },
+
+            //switch
             Some(TrailState{
                 var,
                 reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
             }) => {
                 //println!("switch: {}", !var);
                 self.trail.0.pop();
-                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level);
+                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level-1);
                 self.trail.0.push(TrailState{
                     var: !var,
                     reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
                 });
                 false
             }
+            //exhausted option
             Some(TrailState{
                 var,
                 reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
             }) => {
+                //println!("exhausted: {}", var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.level -= 1;
@@ -606,12 +651,19 @@ impl Solver
 }
 
 fn main() {
-    let clauses = dimacs_to_clausules(std::fs::read_to_string("./tests/satisfable/uf20-01000.cnf").unwrap().as_str());
+    let opts = Opts::from_args();
+    let clauses = dimacs_to_clausules(std::fs::read_to_string(opts.input_task).unwrap().as_str());
     let mut solver = Solver::init(clauses).unwrap();
-    assert!(Ok(()) == solver.solve());
+    solver.solve().unwrap();
     assert!(
         solver.test_satisfied() == MaybeBool::truee(),
         format!("{:#?}\n{}\n{}\n{:?}", solver, solver.trail, solver.string_analyze_conflicts(), solver.test_satisfied())
     );
     //println!("{:#?}", solver);
+}
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "sat-solver", author = "Martin Quarda <martin@quarda.cz>")]
+pub struct Opts {
+    input_task: String,
 }

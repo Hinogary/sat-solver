@@ -108,7 +108,7 @@ enum DimacsToken {
     Number,
 
     #[error]
-    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%]*|c", logos::skip)]
+    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%\.]*|c", logos::skip)]
     Error,
 }
 
