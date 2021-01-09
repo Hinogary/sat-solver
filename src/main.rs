@@ -208,7 +208,7 @@ trait SelectionHeuristics
     fn new(nvars: usize) -> Self;
     fn select_variable(solver: &mut Solver<Self>) -> Var;
     // assigns and asks if continue
-    fn assign(&mut self, var: Var) -> bool;
+    fn assign(&mut self, var: Var, reason: ReasonLock) -> bool;
     fn deassign(&mut self, var: Var);
     // found solution and asks if final solution
     fn final_solution(&mut self, assigments: &[VarSource]) -> bool;
@@ -221,7 +221,7 @@ struct NaiveSelectionHeuristics{
 }
 
 impl SelectionHeuristics for NaiveSelectionHeuristics {
-    fn new(nvars: usize) -> Self{
+    fn new(_: usize) -> Self{
         NaiveSelectionHeuristics{
             index: 0,
         }
@@ -240,14 +240,14 @@ impl SelectionHeuristics for NaiveSelectionHeuristics {
         }
     }
     // assigns and asks if continue
-    fn assign(&mut self, var: Var) -> bool {
+    fn assign(&mut self, _: Var, _: ReasonLock) -> bool {
         true
     }
-    fn deassign(&mut self, var: Var) {
+    fn deassign(&mut self, _: Var) {
 
     }
     // found solution and asks if final solution
-    fn final_solution(&mut self, assigments: &[VarSource]) -> bool{
+    fn final_solution(&mut self, _: &[VarSource]) -> bool{
         true
     }
     fn solution(solver: &Solver<Self>) -> Vec<bool>{
@@ -371,13 +371,11 @@ impl<SH> Solver<SH>
                     if self.locked[*w] {continue}
                     match self.clauses[*w].assingable(&self.assigments[..]) {
                         VarAssingable::Assingable(var) => {
-                            self.trail.0.push(TrailState{
-                                var: var,
-                                reason: ReasonLock::Deducted(*w),
-                            });
+                            let reason = ReasonLock::Deducted(*w);
+                            self.trail.0.push(TrailState{var, reason});
                             self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
-                            self.sel_heuristics.assign(var);
+                            self.sel_heuristics.assign(var, reason);
                             deducted += 1
                         },
                         VarAssingable::Conflict => conflicts.push(*w),
@@ -406,15 +404,11 @@ impl<SH> Solver<SH>
                 }
             }
             let var_to_fix = SH::select_variable(self);
-            self.trail.0.push(
-                TrailState{
-                    reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
-                    var: var_to_fix,
-                }
-            );
+            let reason = ReasonLock::Fixed(TrailChoice::FirstChoice);
+            self.trail.0.push(TrailState{reason, var: var_to_fix});
             self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
             self.level += 1;
-            self.sel_heuristics.assign(var_to_fix);
+            self.sel_heuristics.assign(var_to_fix, reason);
             //propagate
             while to_propagate < self.trail.0.len() {
                 match self.propagate(to_propagate) {
@@ -594,11 +588,9 @@ impl<SH> Solver<SH>
                 self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level-1);
-                self.trail.0.push(TrailState{
-                    var: !var,
-                    reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                });
-                self.sel_heuristics.assign(!var);
+                let reason = ReasonLock::Fixed(TrailChoice::SecondChoice);
+                self.trail.0.push(TrailState{var: !var, reason});
+                self.sel_heuristics.assign(!var, reason);
                 false
             }
             //exhausted option
