@@ -114,7 +114,7 @@ enum DimacsToken {
     Number,
 
     #[error]
-    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%\.]*|c", logos::skip)]
+    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%\.\-]*|c", logos::skip)]
     Error,
 }
 
@@ -257,7 +257,7 @@ mod tests {
             -3 -4 0
             %
             0
-            ";
+        ";
         assert!(
             dimacs_to_clausules(input)
                 == ProblemType::Unweighted(vec![
@@ -350,6 +350,121 @@ mod tests {
                         ],
                     }
                 ]),
+            format!("{:#?}", dimacs_to_clausules(input))
+        );
+    }
+
+    #[test]
+    fn test_dimacs_mwcnf_parser() {
+        let input = "
+            c MWCNF Example
+            c 4 variables, 6 clauses
+            c each clause is terminated by '0' (not by the end of line)
+            p mwcnf 4 6
+            c zero-terminated as the clauses
+            w 2 4 1 6 0
+            1 -3 4 0
+            -1 2 -3 0
+            3 4 0
+            1 2 -3 -4 0
+            -2 3 0
+            -3 -4 0
+        ";
+        assert!(
+            dimacs_to_clausules(input)
+                == ProblemType::Weighted(
+                    vec![
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 0,
+                                    sign: true,
+                                },
+                                Var {
+                                    index: 2,
+                                    sign: false,
+                                },
+                                Var {
+                                    index: 3,
+                                    sign: true,
+                                },
+                            ],
+                        },
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 0,
+                                    sign: false,
+                                },
+                                Var {
+                                    index: 1,
+                                    sign: true,
+                                },
+                                Var {
+                                    index: 2,
+                                    sign: false,
+                                },
+                            ],
+                        },
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 2,
+                                    sign: true,
+                                },
+                                Var {
+                                    index: 3,
+                                    sign: true,
+                                },
+                            ],
+                        },
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 0,
+                                    sign: true,
+                                },
+                                Var {
+                                    index: 1,
+                                    sign: true,
+                                },
+                                Var {
+                                    index: 2,
+                                    sign: false,
+                                },
+                                Var {
+                                    index: 3,
+                                    sign: false,
+                                },
+                            ],
+                        },
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 1,
+                                    sign: false,
+                                },
+                                Var {
+                                    index: 2,
+                                    sign: true,
+                                },
+                            ],
+                        },
+                        Clause {
+                            literals: vec![
+                                Var {
+                                    index: 2,
+                                    sign: false,
+                                },
+                                Var {
+                                    index: 3,
+                                    sign: false,
+                                },
+                            ],
+                        },
+                    ],
+                    vec![2, 4, 1, 6,],
+                ),
             format!("{:#?}", dimacs_to_clausules(input))
         );
     }
