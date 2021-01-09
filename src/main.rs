@@ -259,11 +259,14 @@ use priority_queue::PriorityQueue;
 
 #[derive(Debug)]
 struct GreedyWeightSelectionHeuristics {
-    weights: Vec<usize>,
-    queue: PriorityQueue<Var, usize>,
-    curent_weight: usize,
     best_weight: usize,
     best_solution: Vec<bool>,
+    weights: Vec<usize>,
+    queue: PriorityQueue<Var, usize>,
+    total_weight: usize,
+    // weight lost to false assigments
+    lost_weight: usize,
+    curent_weight: usize,
 }
 
 impl GreedyWeightSelectionHeuristics {
@@ -283,6 +286,8 @@ impl GreedyWeightSelectionHeuristics {
             curent_weight: 0,
             best_weight: 0,
             queue,
+            total_weight: weights.iter().sum(),
+            lost_weight: 0,
             weights,
         }
     }
@@ -294,8 +299,16 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     }
     // assigns and asks if continue
     fn assign(&mut self, var: Var, _: ReasonLock) -> bool {
-        self.queue.remove(&var);
-        true
+        let weight = self.weights[var.index];
+        if var.sign{
+            self.curent_weight += weight;
+            self.queue.remove(&var);
+        }else{
+            self.lost_weight += weight;
+            self.queue.remove(&!var);
+        }
+        // if attainable weight is higher than best_weight -> continue
+        self.best_weight < self.total_weight - self.lost_weight
     }
     fn deassign(&mut self, var: Var) {
         let weight = self.weights[var.index];
@@ -303,6 +316,7 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
             self.curent_weight -= weight;
             self.queue.push(var, weight);
         } else {
+            self.lost_weight -= weight;
             self.queue.push(!var, weight);
         }
     }
@@ -314,7 +328,7 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
                 .zip(assigments.iter())
                 .for_each(|(s, a)| *s = a.into_bool());
         }
-        false
+        false // force for full search space
     }
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.sel_heuristics.best_solution.clone()
