@@ -1,8 +1,12 @@
 mod parsing;
 mod tests;
 
-use itertools::Itertools;
-use parsing::{str_to_clause, str_to_clauses, dimacs_to_clausules};
+//use itertools::Itertools;
+pub use parsing::{
+    str_to_clause,
+    str_to_clauses,
+    dimacs_to_clausules,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Var {
@@ -22,7 +26,7 @@ impl std::ops::Not for Var {
     fn not(self) -> Self::Output {
         Var {
             index: self.index,
-            sign: self.sign,
+            sign: !self.sign,
         }
     }
 }
@@ -31,10 +35,6 @@ impl std::ops::Not for Var {
 struct MaybeBool(Option<bool>);
 
 impl MaybeBool {
-    fn into_inner(self) -> Option<bool> {
-        self.0
-    }
-
     fn undef() -> Self {
         MaybeBool(None)
     }
@@ -54,19 +54,19 @@ impl std::convert::From<bool> for MaybeBool {
     }
 }
 
-impl Var {
+/*impl Var {
     fn into_maybe_bool(self) -> MaybeBool {
         MaybeBool(Some(self.sign))
     }
     fn into_bool(self) -> bool {
         self.sign
     }
-}
+}*/
 
 impl std::fmt::Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.sign {
-            write!(f, "~");
+            write!(f, "~")?;
         }
         write!(f, "x{}", self.index)
     }
@@ -128,8 +128,6 @@ enum VarAssingable {
     Nothing,
 }
 
-struct Conflicts(Vec<usize>);
-
 impl std::fmt::Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
@@ -150,13 +148,13 @@ impl Clause {
             literals: Vec::new(),
         }
     }
-    fn assingable(&self, assigments: &[MaybeBool]) -> VarAssingable {
+    fn assingable(&self, assigments: &[VarSource]) -> VarAssingable {
         let mut to_assign = None;
         let mut satisfied = false;
         //println!("{:?}", assigments);
         for var in &self.literals {
             //println!("{:?} {:?} {:?}", to_assign, var.sign, assigments[var.index].into_maybe_bool());
-            match (to_assign, var.sign, assigments[var.index]) {
+            match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
                 (_, true, MaybeBool(Some(true))) | (_, false, MaybeBool(Some(false))) => {
                     satisfied = true
                 } // it is already satisfied
@@ -165,7 +163,11 @@ impl Clause {
                 (_, true, MaybeBool(Some(false))) | (_, false, MaybeBool(Some(true))) => (),
             }
         }
-        //println!("{}", satisfied);
+        /* //basic debug
+        println!("assingable:");
+        println!("{}", self);
+        println!("{} {:?}", satisfied, to_assign);
+        */
         match (satisfied, to_assign) {
             (false, Some(&to_assign)) => {
                 VarAssingable::Assingable(to_assign)
@@ -179,10 +181,6 @@ impl Clause {
         Clause {
             literals: Vec::new(),
         }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.literals.is_empty()
     }
 
     fn insert(&mut self, var: Var) {
@@ -228,8 +226,6 @@ enum ReasonLock {
     Deducted(usize),
 }
 
-use TrailChoice::*;
-
 #[derive(Debug, Clone, Copy)]
 struct TrailState {
     var: Var,
@@ -241,14 +237,14 @@ struct Trail(Vec<TrailState>);
 
 impl std::fmt::Display for Trail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "-- Decision tree ------------------------");
-        for decision in self.0 {
+        write!(f, "-- Decision tree ------------------------")?;
+        for decision in &self.0 {
             match decision {
                 TrailState {
                     reason: ReasonLock::Fixed(choice),
                     var
                 } => {
-                    write!(f, "\nx{} = {}   {}.  -->", var.index,
+                    write!(f, "\nchoose x{} = {}   {}.", var.index,
                         match var.sign {
                             true => "T",
                             false => "F",
@@ -263,14 +259,17 @@ impl std::fmt::Display for Trail {
                     reason: ReasonLock::Deducted(source),
                     var
                 } => {
-                    write!(f, "  x{} = {}", var.index,
-                    match var.sign {
-                        true => "T",
-                        false => "F",
-                    });
+                    write!(f, "   -> x{} = {} ({})",
+                        var.index,
+                        match var.sign {
+                            true => "T",
+                            false => "F",
+                        },
+                        source
+                    )?;
                 }
             }
-            writeln!(f, "");
+            writeln!(f, "")?;
         }
         Ok(())
     }
@@ -282,24 +281,6 @@ struct LearntClause{
     activity: f32,
 }
 
-#[derive(Debug)]
-enum ClauseType{
-    Original(usize),
-    Learnt(LearntClause),
-}
-
-impl ClauseType{
-    fn into_innder(&self) -> usize {
-        use ClauseType::*;
-        match self {
-            Original(index) => *index,
-            Learnt(LearntClause{clause: clause, ..}) => *clause,
-        }
-    }
-}
-
-use std::collections::HashMap as HMap;
-
 #[derive(Debug, Clone)]
 struct Watcher{
     for_true: Vec<usize>,
@@ -310,13 +291,12 @@ struct Watcher{
 struct Solver
 {
     clauses: Vec<Clause>,
-    given_len: usize, //clauses with index >
+    given_len: usize, //clauses with index > are learnt clauses
     locked: Vec<bool>,
     trail: Trail,
-    trail_lim: Vec<usize>,
     watchers: Vec<Watcher>,
-    assigments: Vec<MaybeBool>,
-    fixing_level: Vec<usize>,
+    assigments: Vec<VarSource>,
+    level: usize,
 }
 
 impl Solver
@@ -337,17 +317,19 @@ impl Solver
             + 1;
         let mut watchers = vec![Watcher{for_true:Vec::new(), for_false:Vec::new()}; nvars];
         let mut trail = Trail(Vec::new());
-        for (clause_id, clause) in (0..).zip(clauses) {
-            match &clause.literals[..] {
-                &[var] => {
+        let mut assigments = vec![VarSource::Undef; nvars];
+        for (clause_id, clause) in (0..).zip(clauses.iter()) {
+            match clause.literals[..] {
+                [var] => {
                     //fix var
                     trail.0.push(TrailState{
                         var: var,
                         reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                    })
+                    });
+                    assigments[var.index] = VarSource::Fixed(var.sign, trail.0.len());
                 },
-                &[] => {return Err(())}, // empty-clause -> unsatisfable
-                vars => {
+                [] => (), //{return Err(())}, // empty-clause -> unsatisfable
+                ref vars => {
                     //add watchers
                     for var in vars{
                         match var.sign{
@@ -358,29 +340,37 @@ impl Solver
                 },
             }
         }
-        // TODO: simplify???
-        Ok(Solver {
+        let given_len = clauses.len();
+        let mut solver = Solver {
+            level: trail.0.len(),
             clauses,
-            given_len: clauses.len(),
-            locked: vec![false; clauses.len()],
+            given_len,
+            locked: vec![false; given_len],
             trail,
-            trail_lim: vec![0],
-            assigments: vec![MaybeBool::undef(); nvars],
+            assigments,
             watchers,
-            fixing_level: vec![0, nvars],
-        })
+        };
+
+        // try to propagate if something was fixed (free propagations)
+        let mut to_propagate = solver.trail.0.len();
+        while to_propagate < solver.trail.0.len() {
+            solver.propagate(to_propagate).map_err(|_| ())?;
+            to_propagate += 1;
+        }
+        Ok(solver)
     }
 
     /// check for tests
     fn test_satisfied(&self) -> MaybeBool {
         self.clauses
             .iter()
+            .take(self.given_len)
             .map(|clause| {
                 clause
                     .literals
                     .iter()
                     .map(|lit| {
-                        self.assigments[lit.index]
+                        self.assigments[lit.index].into_maybe_bool()
                             ^ !MaybeBool(Some(lit.sign))
                     })
                     .fold(MaybeBool::falsee(), |acc, x| acc | x)
@@ -390,6 +380,7 @@ impl Solver
 
     /// unit propagation, Err is conflict (not propagated, just raw)
     fn propagate(&mut self, to_propagate: usize) -> Result<usize, Vec<usize>> {
+        //println!("propagate: {}", to_propagate);
         let mut deducted = 0;
         match self.trail.0[to_propagate] {
             TrailState{
@@ -400,21 +391,23 @@ impl Solver
                 ..
             } => {
                 let watches = match sign {
-                    true => self.watchers[index].for_true,
-                    false => self.watchers[index].for_false,
+                    true => &self.watchers[index].for_true,
+                    false => &self.watchers[index].for_false,
                 };
                 let mut conflicts = Vec::new();
                 for w in watches {
-                    if self.locked[w] {continue}
-                    match self.clauses[w].assingable(&self.assigments[..]) {
+                    if self.locked[*w] {continue}
+                    match self.clauses[*w].assingable(&self.assigments[..]) {
                         VarAssingable::Assingable(var) => {
                             self.trail.0.push(TrailState{
                                 var: var,
-                                reason: ReasonLock::Deducted(w),
+                                reason: ReasonLock::Deducted(*w),
                             });
+                            self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level);
+                            self.locked[*w] = true;
                             deducted += 1
                         },
-                        VarAssingable::Conflict => conflicts.push(w),
+                        VarAssingable::Conflict => conflicts.push(*w),
                         VarAssingable::Nothing => (),
                     }
                 }
@@ -428,211 +421,197 @@ impl Solver
 
     fn solve(&mut self) -> Result<(), ()> {
         let mut i = 0; //to be fixed
-        let mut to_propagate = 0;
+        let mut to_propagate = self.trail.0.len(); //assumptions that vars are assigned in their other
+        self.level = self.level;
         loop {
-            //fix something
-            while self.assigments[i] != MaybeBool::undef() {
-                i+=1;
+            if self.trail.0.len() == self.assigments.len(){
+                return Ok(())
             }
+            //fix first unassigned var
+            while self.assigments[i] != VarSource::Undef {
+                i = (i + 1) % self.assigments.len()
+            }
+            let assign = self.watchers[i].for_true.len() <= self.watchers[i].for_false.len();
             self.trail.0.push(
                 TrailState{
                     reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
                     var: Var{
                         index: i,
-                        sign: true,
+                        // prefer choice with less watchers
+                        sign: assign,
                     }
                 }
             );
-            i+=1;
+            self.assigments[i] = VarSource::Fixed(assign, self.level);
+            self.level += 1;
             //propagate
             while to_propagate < self.trail.0.len() {
                 match self.propagate(to_propagate) {
-                    Ok(x) => to_propagate += 1,
+                    Ok(_) => to_propagate += 1,
                     Err(conflicts) => {
-                        self.resolve_conflicts(conflicts);
-                        to_propagate = self.trail.0.len()
+                        self.resolve_conflicts(conflicts)?;
+                        to_propagate = self.trail.0.len()-1
                     }
                 }
             }
         }
     }
 
-    fn resolve_conflicts(&mut self, conflicts: Vec<usize>){
-        // probably learning should occur hear
+    fn append_new_clause(&mut self, clause: Clause){
+        let clause_id = self.clauses.len();
+        match clause.literals[..] {
+            [_] => panic!(),
+            [] => panic!(), // empty-clause -> unsatisfable
+            ref vars => {
+                //add watchers
+                for var in vars{
+                    match var.sign{
+                        true => self.watchers[var.index].for_false.push(clause_id),
+                        false => self.watchers[var.index].for_true.push(clause_id),
+                    }
+                }
+            },
+        }
+        self.clauses.push(clause);
+        self.locked.push(false);
+    }
+
+    fn resolve_conflicts(&mut self, conflicts: Vec<usize>) -> Result<(), ()>{
+        // learns new clausule from conflict
 
         // for each conflict find decision level and try to divide new clause
+
+        let conflict_level = self.level; //assumes full propagate resolution
+        // select higest implication level -> at least this need to be flipped (if not second choice)
+        let implication_level = conflicts
+            .iter()
+            .map(|&conflict_id| &self.clauses[conflict_id])
+            .map(|clause| clause
+                .literals
+                .iter()
+                .filter_map(
+                    |lit| match self.assigments[lit.index].into_conflict_level().unwrap() {
+                        x if x == conflict_level => None,
+                        x => Some(x),
+                }).min()
+                .unwrap_or(0)
+            ).min()
+            .unwrap();
+
         for conflict_id in conflicts{
             let clause = &self.clauses[conflict_id];
-            let mut conflict_sources = Vec::new(); //probably just one
-            let mut iterator = self.trail.0.iter().rev();
-            // resolving conflict level
-            for trailstate in iterator {
-                match trailstate {
-                    TrailState{
-                        var,
-                        ..
-                    } => {
-                        if clause.literals.iter().find(|&&x| x == !*var).is_some() {
-                            conflict_sources.push(var)
-                        }
-                    }
-                }
-                match trailstate {
-                    TrailState{
-                        reason: ReasonLock::Fixed(_),
-                        ..
-                    } => break,
-                }
+            let mut new_clause = clause.clone();
+
+            /*
+            println!("conflict:");
+            println!("{}", self.trail);
+            println!("{}", clause);
+            */
+
+
+            if implication_level == 0 && match self.trail.0[0] {
+                TrailState{
+                    reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+                    ..
+                } => true,
+                _ => false,
+            } {
+                return Err(());
             }
-            let mut implied_sources = Vec::new();
-            for trailstate in iterator {
-                match trailstate {
-                    TrailState{
-                        var,
-                        ..
-                    } => {
-                        if clause.literals.iter().find(|&&x| x == !*var).is_some() {
-                            implied_sources.push(var)
-                        }
-                    }
-                }
-                match trailstate {
-                    TrailState{
-                        reason: ReasonLock::Fixed(_),
-                        ..
-                    } => if !implied_sources.is_empty() {
-                        break
+
+            // (!x1 ^ !x2 ) = > x3
+            // change x3 to x1 v x2
+            // if x3 is having level >= implication_level
+            let mut i = 0;
+            let mut fixed = 0;
+            while i < new_clause.literals.len(){
+                let index = new_clause.literals[i].index;
+                let assign = &self.assigments[index];
+                match assign {
+                    VarSource::Deducted(_, source, level) if *level <= implication_level => {
+                        self.clauses[*source].literals.iter().filter(|lit| lit.index != index).for_each(|lit| new_clause.literals.push(*lit));
+                        new_clause.literals[i] = new_clause.literals.pop().unwrap();
                     },
+                    VarSource::Fixed(_, _) => {fixed += 1; i+=1},
+                    _ => i += 1,
                 }
             }
 
+            //new clause just from fixed .. skip
+            if fixed == new_clause.literals.len(){
+                continue
+            }
 
-
-
+            self.append_new_clause(new_clause);
         }
 
-
-
+        //undo trail and switch most recent choice, which is possible
+        while match self.trail.0.last().cloned() {
+            Some(TrailState{
+                var,
+                ..
+            }) if self.level < implication_level => {
+                self.trail.0.pop();
+                self.assigments[var.index] = VarSource::Undef;
+                true
+            },
+            Some(TrailState{
+                var,
+                reason: ReasonLock::Deducted(source),
+            }) => {
+                self.trail.0.pop();
+                self.assigments[var.index] = VarSource::Undef;
+                self.locked[source] = false;
+                true
+            },
+            Some(TrailState{
+                var,
+                reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
+            }) => {
+                //println!("switch: {}", !var);
+                self.trail.0.pop();
+                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level);
+                self.trail.0.push(TrailState{
+                    var: !var,
+                    reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+                });
+                false
+            }
+            Some(TrailState{
+                var,
+                reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+            }) => {
+                self.trail.0.pop();
+                self.assigments[var.index] = VarSource::Undef;
+                self.level -= 1;
+                true
+            }
+            None => return Err(()), // exhausted choices
+        } {/*empty body*/}
+        Ok(())
     }
 
-    /// Conflict is clause, where all Variables are assigned, but Clause forms Contradiction
-    fn solve_conflict(&mut self, conflict: Conflict) -> Result<Option<Clause>, ()> {
-        use std::cell::UnsafeCell;
-        use std::collections::HashMap as Map;
-        use std::collections::HashSet as Set;
-        #[cfg(debug_assertions)]
-        println!("conflicting {}", conflict.clause);
-
-        debug_assert!(!conflict.clause.literals.is_empty());
-
-        // Creating initial conflict plane and calculating risky levels conflict plane
-
-        let mut conflict_plane = Map::new(); // var, is_on_edge?
-        let mut last_level: Option<(usize, Var)> = None; // this is conflict level, that needs to be reverted
-                                                         //                  v- implied_level (lowest level, which causes conflict)
-                                                         // (x1 ^ x2 ^ x3 ^ x4) => x5
-                                                         //                         ^ last_level
-        let mut implied_level = None;
-        for var in conflict.clause.literals {
-            conflict_plane.insert(var, true);
-            let level = self
-                .searchstate
-                .assigment(var.index)
-                .into_conflict_level()
-                .unwrap_or_else(|| panic!("{:?}", self.searchstate.assigment(var.index)));
-            if level >= last_level.map(|x| x.0).unwrap_or(0) {
-                implied_level = last_level;
-                last_level = Some((level, var));
+    fn string_analyze_conflicts(&self) -> String {
+        let mut st = "Conflicts:".to_string();
+        for clause in &self.clauses{
+            match clause.assingable(&self.assigments[..]) {
+                VarAssingable::Conflict => {
+                    st = format!("{}\n{}", st, clause)
+                },
+                _ => (),
             }
         }
-
-        let last_level = last_level.map(|(x, _)| x).unwrap();
-        let implied_level = implied_level.map(|(x, _)| x).unwrap_or(0);
-
-        // Move conflict plane upwards -> generate better clauses (not yet implemented)
-
-        let conflict_plane: UnsafeCell<_> = conflict_plane.into();
-
-        let mut new_clause_from_conflict = Clause::empty();
-        let mut waiting_to_insert_into_cf = Set::new();
-        let mut x = 0;
-        loop {
-            for (&k, v) in unsafe { &mut *conflict_plane.get() }
-                .iter_mut()
-                .filter(|(_, v)| **v)
-            {
-                *v = false;
-                match &self.searchstate.assigment(k.index) {
-                    VarSource::Undef => unreachable!(),
-                    VarSource::Deducted(_, source, _) => {
-                        for var in source {
-                            // Keys can't alias, it will cause cyclic Clause
-                            if unsafe { &*conflict_plane.get() }.get(&var) == None {
-                                waiting_to_insert_into_cf.insert(k);
-                            }
-                        }
-                    }
-                    VarSource::Fixed(_, level) => {
-                        new_clause_from_conflict.insert(if *level == last_level { k } else { !k })
-                    }
-                }
-            }
-            if waiting_to_insert_into_cf.is_empty() {
-                break;
-            }
-            waiting_to_insert_into_cf.retain(|&key| {
-                unsafe { &mut *conflict_plane.get() }.insert(key, true);
-                false
-            });
-        }
-        // TODO: generate clause from conflict plane and insert it
-
-        // Undoes work up to implied_level, then change mind on var selection
-        // last level -> delete
-        // implication level -> change mind
-
-        (implied_level..=self.searchstate.trail_len() - 2)
-            .map(|_| self.searchstate.raise_level(&mut self.heuristics))
-            .last();
-
-        loop {
-            match (self.searchstate.raise_level(&mut self.heuristics), self.searchstate.trail_len()) {
-                (
-                    TrailState {
-                        choice: TrailChoice::SecondChoice,
-                        ..
-                    },
-                    0,
-                ) => return Err(()),
-                (
-                    TrailState {
-                        choice: TrailChoice::FirstChoice,
-                        var: Var { index, sign },
-                    },
-                    _,
-                ) => {
-                    self.searchstate.fix_level(TrailState{var: Var{index, sign: !(bool::from(sign))}, choice: SecondChoice});
-                    break;
-                }
-                (
-                    TrailState {
-                        choice: TrailChoice::SecondChoice,
-                        ..
-                    },
-                    _,
-                ) => (),
-            }
-        }
-        Ok(None)
+        st
     }
 }
 
 fn main() {
-    let clauses = dimacs_to_clausules(std::fs::read_to_string("./tests/satisfable/uf20-01.cnf").unwrap().as_str());
-    let mut solver = Solver::<NaiveHeuristics>::init(clauses).unwrap();
+    let clauses = dimacs_to_clausules(std::fs::read_to_string("./tests/satisfable/uf20-01000.cnf").unwrap().as_str());
+    let mut solver = Solver::init(clauses).unwrap();
     assert!(Ok(()) == solver.solve());
     assert!(
         solver.test_satisfied() == MaybeBool::truee(),
-        format!("{:?}, {:#?}", solver.test_satisfied(), solver)
+        format!("{:#?}\n{}\n{}\n{:?}", solver, solver.trail, solver.string_analyze_conflicts(), solver.test_satisfied())
     );
+    //println!("{:#?}", solver);
 }

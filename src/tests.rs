@@ -8,7 +8,7 @@ mod tests {
         let assignable = assingability(clause, assign);
         assert!(
             match assignable {
-                VarAssingable::Assingable(_, _) => true,
+                VarAssingable::Assingable(_) => true,
                 _ => false,
             },
             format!("{} {:?}", clause, assignable)
@@ -19,7 +19,7 @@ mod tests {
         let assignable = assingability(clause, assign);
         assert!(
             match assignable {
-                VarAssingable::Conflict(_) => true,
+                VarAssingable::Conflict => true,
                 _ => false,
             },
             format!("{} {:?}", clause, assignable)
@@ -89,7 +89,7 @@ mod tests {
         println!("------------------------------------------------");
         println!("{}", expr);
         let clauses = str_to_clauses(expr);
-        let mut solver = Solver::<NaiveHeuristics>::init(clauses).unwrap();
+        let mut solver = Solver::init(clauses).unwrap();
         assert!(Ok(()) == solver.solve());
         assert!(
             solver.test_satisfied() == MaybeBool::truee(),
