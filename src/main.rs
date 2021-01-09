@@ -9,6 +9,9 @@ use maybebool::*;
 mod var;
 use var::*;
 
+mod clause;
+use clause::*;
+
 use itertools::Itertools;
 pub use parsing::{dimacs_to_clausules, str_to_clause, str_to_clauses};
 
@@ -18,79 +21,8 @@ pub enum ProblemType {
     Weighted(Vec<Clause>, Vec<usize>),
 }
 
-/// Clause can't aliasing ... x0 v x0 need to be minimized to x0
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Clause {
-    literals: Vec<Var>,
-}
-
-#[derive(Debug, Clone)]
-enum VarAssingable {
-    Assingable(Var),
-    Conflict,
-    Nothing,
-}
-
-impl std::fmt::Display for Clause {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(")?;
-        for lit in self.literals.iter().take(1) {
-            write!(f, "{}", lit)?;
-        }
-        for lit in self.literals.iter().skip(1) {
-            write!(f, " v {}", lit)?;
-        }
-        write!(f, ")")?;
-        Ok(())
-    }
-}
-
-impl Clause {
-    fn new() -> Clause {
-        Clause {
-            literals: Vec::new(),
-        }
-    }
-    fn assingable(&self, assigments: &[VarSource]) -> VarAssingable {
-        let mut to_assign = None;
-        let mut satisfied = false;
-        //println!("{:?}", assigments);
-        for var in &self.literals {
-            //println!("{:?} {:?} {:?}", to_assign, var.sign, assigments[var.index].into_maybe_bool());
-            match (to_assign, var.sign, assigments[var.index].into_maybe_bool()) {
-                (_, true, MaybeBool(Some(true))) | (_, false, MaybeBool(Some(false))) => {
-                    satisfied = true
-                } // it is already satisfied
-                (None, _, MaybeBool(None)) => to_assign = Some(var),
-                (Some(_), _, MaybeBool(None)) => return VarAssingable::Nothing, // at least 2 vars are undefined
-                (_, true, MaybeBool(Some(false))) | (_, false, MaybeBool(Some(true))) => (),
-            }
-        }
-        /* //basic debug
-        println!("assingable:");
-        println!("{}", self);
-        println!("{} {:?}", satisfied, to_assign);
-        */
-        match (satisfied, to_assign) {
-            (false, Some(&to_assign)) => VarAssingable::Assingable(to_assign),
-            (true, _) => VarAssingable::Nothing,
-            (false, None) => VarAssingable::Conflict,
-        }
-    }
-
-    fn empty() -> Clause {
-        Clause {
-            literals: Vec::new(),
-        }
-    }
-
-    fn insert(&mut self, var: Var) {
-        self.literals.push(var)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum VarSource {
+pub enum VarSource {
     Undef,
     //           v- level at what variable was fixed, zero means it must be assigned to value
     Fixed(bool, usize),
@@ -300,10 +232,10 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     // assigns and asks if continue
     fn assign(&mut self, var: Var, _: ReasonLock) -> bool {
         let weight = self.weights[var.index];
-        if var.sign{
+        if var.sign {
             self.curent_weight += weight;
             self.queue.remove(&var);
-        }else{
+        } else {
             self.lost_weight += weight;
             self.queue.remove(&!var);
         }
@@ -327,6 +259,7 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
                 .iter_mut()
                 .zip(assigments.iter())
                 .for_each(|(s, a)| *s = a.into_bool());
+            self.best_weight = self.curent_weight;
         }
         false // force for full search space
     }
@@ -355,6 +288,7 @@ where
     SH: SelectionHeuristics,
 {
     fn init(clauses: Vec<Clause>, sel_heuristics: SH) -> Result<Solver<SH>, ()> {
+        let mut sel_heuristics = sel_heuristics;
         let nvars = clauses
             .iter()
             .map(|clause| {
@@ -381,11 +315,10 @@ where
             match clause.literals[..] {
                 [var] => {
                     //fix var
-                    trail.0.push(TrailState {
-                        var: var,
-                        reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                    });
+                    let reason = ReasonLock::Fixed(TrailChoice::SecondChoice);
+                    trail.0.push(TrailState { var: var, reason });
                     assigments[var.index] = VarSource::Fixed(var.sign, trail.0.len());
+                    sel_heuristics.assign(var, reason);
                 }
                 [] => (), //{return Err(())}, // empty-clause -> unsatisfable
                 ref vars => {
@@ -460,6 +393,7 @@ where
                             self.assigments[var.index] =
                                 VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
+                            // TODO: make use of return value
                             self.sel_heuristics.assign(var, reason);
                             deducted += 1
                         }
@@ -486,25 +420,38 @@ where
                     return Ok(SH::solution(self));
                 } else {
                     found_solution = true;
+                    match self.switch_at_least_level(std::usize::MAX - 1) {
+                        Err(()) => {
+                            if found_solution {
+                                return Ok(SH::solution(self));
+                            } else {
+                                return Err(());
+                            }
+                        }
+                        Ok(()) => to_propagate = self.trail.0.len() - 1,
+                    }
                 }
             }
-            let var_to_fix = SH::select_variable(self);
-            let reason = ReasonLock::Fixed(TrailChoice::FirstChoice);
-            self.trail.0.push(TrailState {
-                reason,
-                var: var_to_fix,
-            });
-            self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
-            self.level += 1;
-            if !self.sel_heuristics.assign(var_to_fix, reason){
-                match self.switch_at_least_level(std::usize::MAX - 1){
-                    Err(()) =>
-                        if found_solution {
-                            return Ok(SH::solution(self));
-                        } else {
-                            return Err(());
-                        },
-                    Ok(()) => (),
+            if to_propagate == self.trail.0.len() {
+                let var_to_fix = SH::select_variable(self);
+                let reason = ReasonLock::Fixed(TrailChoice::FirstChoice);
+                self.trail.0.push(TrailState {
+                    reason,
+                    var: var_to_fix,
+                });
+                self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
+                self.level += 1;
+                if !self.sel_heuristics.assign(var_to_fix, reason) {
+                    match self.switch_at_least_level(std::usize::MAX - 1) {
+                        Err(()) => {
+                            if found_solution {
+                                return Ok(SH::solution(self));
+                            } else {
+                                return Err(());
+                            }
+                        }
+                        Ok(()) => to_propagate = self.trail.0.len() - 1,
+                    }
                 }
             }
             //propagate
@@ -661,7 +608,7 @@ where
         self.switch_at_least_level(implication_level)
     }
 
-    fn switch_at_least_level(&mut self, level: usize) -> Result<(), ()>{
+    fn switch_at_least_level(&mut self, level: usize) -> Result<(), ()> {
         while match self.trail.0.last().cloned() {
             // undo trail
             Some(TrailState {
@@ -710,6 +657,7 @@ where
                 // beaware of !
                 !self.sel_heuristics.assign(!var, reason)
             }
+
             //exhausted option
             Some(TrailState {
                 var,
@@ -758,7 +706,8 @@ fn main() {
             );
         }
         ProblemType::Weighted(clauses, weights) => {
-            let mut solver = Solver::init(clauses, GreedyWeightSelectionHeuristics::new(weights)).unwrap();
+            let mut solver =
+                Solver::init(clauses, GreedyWeightSelectionHeuristics::new(weights)).unwrap();
             let assigns = solver.solve().unwrap();
             assert!(
                 solver.test_satisfied(&assigns[..]) == true,
@@ -770,7 +719,8 @@ fn main() {
                     solver.test_satisfied(&assigns[..])
                 )
             );
-        },
+            println!("Weight: {}", solver.sel_heuristics.best_weight);
+        }
     }
     //println!("{:#?}", solver);
 }

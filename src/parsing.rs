@@ -114,7 +114,7 @@ enum DimacsToken {
     Number,
 
     #[error]
-    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%\.\-]*|c", logos::skip)]
+    #[regex(r"[ \n\t\f%]+|c [a-zA-Z0-9 '\(\),?=\t%\.\-/]*|c", logos::skip)]
     Error,
 }
 
@@ -164,7 +164,7 @@ pub fn dimacs_to_clausules(dimacs: &str) -> ProblemType {
         None
     };
     let mut clauses: Vec<Clause> = vec![];
-    let mut current_clause = Clause::empty();
+    let mut current_clause = Clause::new();
     loop {
         match lex.next() {
             Some(Number) => {
@@ -173,7 +173,7 @@ pub fn dimacs_to_clausules(dimacs: &str) -> ProblemType {
                     if !current_clause.literals.is_empty() {
                         clauses.push(current_clause);
                     }
-                    current_clause = Clause::empty();
+                    current_clause = Clause::new();
                 } else {
                     current_clause.insert(Var::new(num.abs() as usize - 1, num > 0))
                 }
