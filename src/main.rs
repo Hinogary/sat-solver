@@ -3,6 +3,12 @@ use structopt::StructOpt;
 mod parsing;
 mod tests;
 
+mod maybebool;
+use maybebool::*;
+
+mod var;
+use var::*;
+
 use itertools::Itertools;
 pub use parsing::{
     str_to_clause,
@@ -10,111 +16,9 @@ pub use parsing::{
     dimacs_to_clausules,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Var {
-    index: usize,
-    sign: bool,
-}
-
-impl Var {
-    fn new(index: usize, state: bool) -> Var {
-        Var { index, sign: state }
-    }
-}
-
-impl std::ops::Not for Var {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        Var {
-            index: self.index,
-            sign: !self.sign,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MaybeBool(Option<bool>);
-
-impl MaybeBool {
-    fn undef() -> Self {
-        MaybeBool(None)
-    }
-
-    fn truee() -> Self {
-        MaybeBool(Some(true))
-    }
-
-    fn falsee() -> Self {
-        MaybeBool(Some(false))
-    }
-}
-
-impl std::convert::From<bool> for MaybeBool {
-    fn from(b: bool) -> Self {
-        MaybeBool(Some(b))
-    }
-}
-
-/*impl Var {
-    fn into_maybe_bool(self) -> MaybeBool {
-        MaybeBool(Some(self.sign))
-    }
-    fn into_bool(self) -> bool {
-        self.sign
-    }
-}*/
-
-impl std::fmt::Display for Var {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !self.sign {
-            write!(f, "~")?;
-        }
-        write!(f, "x{}", self.index)
-    }
-}
-
-impl std::ops::BitAnd for MaybeBool {
-    type Output = Self;
-    fn bitand(self, rhs: Self) -> Self::Output {
-        MaybeBool(match (self.0, rhs.0) {
-            (Some(true), Some(true)) => Some(true),
-            (Some(false), _) | (_, Some(false)) => Some(false),
-            _ => None,
-        })
-    }
-}
-
-impl std::ops::BitOr for MaybeBool {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        MaybeBool(match (self.0, rhs.0) {
-            (Some(false), Some(false)) => Some(false),
-            (Some(true), _) | (_, Some(true)) => Some(true),
-            _ => None,
-        })
-    }
-}
-
-impl std::ops::BitXor for MaybeBool {
-    type Output = Self;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        MaybeBool(match (self.0, rhs.0) {
-            (Some(true), Some(false)) | (Some(false), Some(true)) => Some(true),
-            (Some(true), Some(true)) | (Some(false), Some(false)) => Some(false),
-            (None, _) | (_, None) => None,
-        })
-    }
-}
-
-impl std::ops::Not for MaybeBool {
-    type Output = Self;
-    fn not(self) -> Self::Output {
-        MaybeBool(match self.0 {
-            Some(x) => Some(!x),
-            None => None,
-        })
-    }
+enum ProblemType {
+    Unweighted(Vec<Clause>),
+    Weighted(Vec<Clause>, Vec<usize>),
 }
 
 /// Clause can't aliasing ... x0 v x0 need to be minimized to x0
@@ -207,6 +111,13 @@ impl VarSource {
         }
     }
 
+    fn into_bool(&self) -> bool {
+        match self {
+            VarSource::Fixed(state, _) | VarSource::Deducted(state, _, _) => *state,
+            VarSource::Undef => panic!(),
+        }
+    }
+
     fn into_conflict_level(&self) -> Option<usize> {
         match self {
             VarSource::Fixed(_, level) | VarSource::Deducted(_, _, level) => Some(*level),
@@ -289,8 +200,65 @@ struct Watcher{
     for_false: Vec<usize>,
 }
 
+// this is where weighted SAT is implemented
+trait SelectionHeuristics
+    where Self: Sized,
+          Self: std::fmt::Debug,
+{
+    fn new(nvars: usize) -> Self;
+    fn select_variable(solver: &mut Solver<Self>) -> Var;
+    // assigns and asks if continue
+    fn assign(&mut self, var: Var) -> bool;
+    fn deassign(&mut self, var: Var);
+    // found solution and asks if final solution
+    fn final_solution(&mut self, assigments: &[VarSource]) -> bool;
+    fn solution(solver: &Solver<Self>) -> Vec<bool>;
+}
+
 #[derive(Debug)]
-struct Solver
+struct NaiveSelectionHeuristics{
+    index: usize
+}
+
+impl SelectionHeuristics for NaiveSelectionHeuristics {
+    fn new(nvars: usize) -> Self{
+        NaiveSelectionHeuristics{
+            index: 0,
+        }
+    }
+    fn select_variable(solver: &mut Solver<Self>) -> Var{
+        let mut index = solver.sel_heuristics.index;
+        //fix first unassigned var
+        while solver.assigments[index] != VarSource::Undef {
+            index = (index + 1) % solver.assigments.len()
+        }
+        let assign = solver.watchers[index].for_true.len() <= solver.watchers[index].for_false.len();
+        solver.sel_heuristics.index = index;
+        Var{
+            sign: assign,
+            index: index,
+        }
+    }
+    // assigns and asks if continue
+    fn assign(&mut self, var: Var) -> bool {
+        true
+    }
+    fn deassign(&mut self, var: Var) {
+
+    }
+    // found solution and asks if final solution
+    fn final_solution(&mut self, assigments: &[VarSource]) -> bool{
+        true
+    }
+    fn solution(solver: &Solver<Self>) -> Vec<bool>{
+        solver.assigments.iter().map(|x| x.into_bool()).collect()
+    }
+}
+
+#[derive(Debug)]
+struct Solver<SH>
+    where SH : SelectionHeuristics,
+          SH : std::fmt::Debug,
 {
     clauses: Vec<Clause>,
     given_len: usize, //clauses with index > are learnt clauses
@@ -299,11 +267,13 @@ struct Solver
     watchers: Vec<Watcher>,
     assigments: Vec<VarSource>,
     level: usize,
+    sel_heuristics: SH,
 }
 
-impl Solver
+impl<SH> Solver<SH>
+    where SH : SelectionHeuristics,
 {
-    fn init(clauses: Vec<Clause>) -> Result<Solver, ()> {
+    fn init(clauses: Vec<Clause>) -> Result<Solver<SH>, ()> {
         let nvars = clauses
             .iter()
             .map(|clause| {
@@ -343,7 +313,7 @@ impl Solver
             }
         }
         let given_len = clauses.len();
-        let mut solver = Solver {
+        let mut solver = Solver::<SH> {
             level: trail.0.len(),
             clauses,
             given_len,
@@ -351,6 +321,7 @@ impl Solver
             trail,
             assigments,
             watchers,
+            sel_heuristics: SH::new(nvars),
         };
 
         // try to propagate if something was fixed (free propagations)
@@ -363,7 +334,7 @@ impl Solver
     }
 
     /// check for tests
-    fn test_satisfied(&self) -> MaybeBool {
+    fn test_satisfied(&self, assigns: &[bool]) -> bool {
         self.clauses
             .iter()
             .take(self.given_len)
@@ -372,12 +343,11 @@ impl Solver
                     .literals
                     .iter()
                     .map(|lit| {
-                        self.assigments[lit.index].into_maybe_bool()
-                            ^ !MaybeBool(Some(lit.sign))
+                        assigns[lit.index] ^ !lit.sign
                     })
-                    .fold(MaybeBool::falsee(), |acc, x| acc | x)
+                    .fold(false, |acc, x| acc | x)
             })
-            .fold(MaybeBool::truee(), |acc, x| acc & x)
+            .fold(true, |acc, x| acc & x)
     }
 
     /// unit propagation, Err is conflict (not propagated, just raw)
@@ -407,6 +377,7 @@ impl Solver
                             });
                             self.assigments[var.index] = VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
+                            self.sel_heuristics.assign(var);
                             deducted += 1
                         },
                         VarAssingable::Conflict => conflicts.push(*w),
@@ -421,37 +392,42 @@ impl Solver
         Ok(deducted)
     }
 
-    fn solve(&mut self) -> Result<(), ()> {
-        let mut i = 0; //to be fixed
+    fn solve(&mut self) -> Result<Vec<bool>, ()> {
         let mut to_propagate = self.trail.0.len(); //assumptions that vars are assigned in their other
         self.level = self.level;
+        let mut found_solution = false;
         loop {
+            //satisfiable and assigned
             if self.trail.0.len() == self.assigments.len(){
-                return Ok(())
+                if self.sel_heuristics.final_solution(&self.assigments){
+                    return Ok(SH::solution(self))
+                } else {
+                    found_solution = true;
+                }
             }
-            //fix first unassigned var
-            while self.assigments[i] != VarSource::Undef {
-                i = (i + 1) % self.assigments.len()
-            }
-            let assign = self.watchers[i].for_true.len() <= self.watchers[i].for_false.len();
+            let var_to_fix = SH::select_variable(self);
             self.trail.0.push(
                 TrailState{
                     reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
-                    var: Var{
-                        index: i,
-                        // prefer choice with less watchers
-                        sign: assign,
-                    }
+                    var: var_to_fix,
                 }
             );
-            self.assigments[i] = VarSource::Fixed(assign, self.level);
+            self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
             self.level += 1;
+            self.sel_heuristics.assign(var_to_fix);
             //propagate
             while to_propagate < self.trail.0.len() {
                 match self.propagate(to_propagate) {
                     Ok(_) => to_propagate += 1,
                     Err(conflicts) => {
-                        self.resolve_conflicts(conflicts)?;
+                        match self.resolve_conflicts(conflicts){
+                            Err(()) => if found_solution {
+                                return Ok(SH::solution(self))
+                            } else {
+                                return Err(())
+                            }
+                            _ => (),
+                        };
                         to_propagate = self.trail.0.len()-1
                     }
                 }
@@ -507,7 +483,7 @@ impl Solver
 
         //println!("==================\nconflicts {}:\n==================", conflicts.len());
         // on too much conflicts do not try even learn
-        if conflicts.len() < 3 {
+        if conflicts.len() < 10 {
             for conflict_id in conflicts{
                 let clause = &self.clauses[conflict_id];
                 let mut new_clause = clause.clone();
@@ -581,6 +557,7 @@ impl Solver
                 var,
                 reason: ReasonLock::Deducted(source)
             }) if self.level > implication_level+1 => {
+                self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.locked[source] = false;
@@ -591,6 +568,7 @@ impl Solver
                 reason: ReasonLock::Fixed(_)
             }) if self.level > implication_level+1 => {
                 //println!("undo: {}", var);
+                self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.level -= 1;
@@ -600,6 +578,7 @@ impl Solver
                 var,
                 reason: ReasonLock::Deducted(source),
             }) => {
+                self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.locked[source] = false;
@@ -612,12 +591,14 @@ impl Solver
                 reason: ReasonLock::Fixed(TrailChoice::FirstChoice),
             }) => {
                 //println!("switch: {}", !var);
+                self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level-1);
                 self.trail.0.push(TrailState{
                     var: !var,
                     reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
                 });
+                self.sel_heuristics.assign(!var);
                 false
             }
             //exhausted option
@@ -626,6 +607,7 @@ impl Solver
                 reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
             }) => {
                 //println!("exhausted: {}", var);
+                self.sel_heuristics.deassign(var);
                 self.trail.0.pop();
                 self.assigments[var.index] = VarSource::Undef;
                 self.level -= 1;
@@ -653,11 +635,11 @@ impl Solver
 fn main() {
     let opts = Opts::from_args();
     let clauses = dimacs_to_clausules(std::fs::read_to_string(opts.input_task).unwrap().as_str());
-    let mut solver = Solver::init(clauses).unwrap();
-    solver.solve().unwrap();
+    let mut solver = Solver::<NaiveSelectionHeuristics>::init(clauses).unwrap();
+    let assigns = solver.solve().unwrap();
     assert!(
-        solver.test_satisfied() == MaybeBool::truee(),
-        format!("{:#?}\n{}\n{}\n{:?}", solver, solver.trail, solver.string_analyze_conflicts(), solver.test_satisfied())
+        solver.test_satisfied(&assigns[..]) == true,
+        format!("{:#?}\n{}\n{}\n{:?}", solver, solver.trail, solver.string_analyze_conflicts(), solver.test_satisfied(&assigns[..]))
     );
     //println!("{:#?}", solver);
 }

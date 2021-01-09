@@ -1,8 +1,6 @@
-use super::*;
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::*;
 
     fn test_assingability(clause: &str, assign: &[bool]) {
         let assignable = assingability(clause, assign);
@@ -89,11 +87,11 @@ mod tests {
         println!("------------------------------------------------");
         println!("{}", expr);
         let clauses = str_to_clauses(expr);
-        let mut solver = Solver::init(clauses).unwrap();
-        assert!(Ok(()) == solver.solve());
+        let mut solver = Solver::<NaiveSelectionHeuristics>::init(clauses).unwrap();
+        let assigns = solver.solve().unwrap();
         assert!(
-            solver.test_satisfied() == MaybeBool::truee(),
-            format!("{:?}, {:#?}", solver.test_satisfied(), solver)
+            solver.test_satisfied(&assigns) == true,
+            format!("{:?}, {:#?}", solver.test_satisfied(&assigns), solver)
         );
     }
 

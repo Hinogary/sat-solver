@@ -104,6 +104,12 @@ enum DimacsToken {
     #[regex(r"cnf")]
     CNF,
 
+    #[regex(r"mwcnf")]
+    MWCNF,
+
+    #[regex("w")]
+    Weights,
+
     #[regex(r"-?[0-9]+")]
     Number,
 
@@ -210,8 +216,8 @@ mod tests {
     fn test_dimacs_cnf_parser() {
         let input = "
             c CNF Example
-            c 4 variables, 6 clauses
-            c each clause is terminated by '0' (not by the end of line)
+            c 4 variabwles, 6 clauses
+            c each clausse is termiwnated by '0' (not by the end of line)
             p cnf 4 6
             1 -3 4 0
             -1 2 -3 0
