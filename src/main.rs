@@ -513,6 +513,8 @@ where
 
         let conflict_level = self.level - 1; //assumes full propagate resolution
                                              // select higest implication level -> at least this need to be flipped (if not second choice)
+
+        // not as needed as I think it is (maybe cleanup?)
         let implication_level = conflicts
             .iter()
             .map(|&conflict_id| &self.clauses[conflict_id])
