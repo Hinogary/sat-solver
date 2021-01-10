@@ -23,9 +23,14 @@ time: 4.5457ms
 Architektura
 ------------
 
-Základní architektura je CDCL řešič s efektivní implementací propagace, která je inspirována řešičem MiniSAT. Jednotlivé reprezentace nejsou tak vymazlené jako jsou MiniSAT, takže rychlostí se mu nejspíše neblížim.
+Základní architektura je CDCL řešič s efektivní implementací propagace, která je inspirována řešičem MiniSAT. Jednotlivé reprezentace nejsou tak vymazlené jako jsou MiniSAT, tak rychlostí se mu nejspíše ani neblížim.
 
 Na základních (splnitelných) problémech ze stránky https://www.cs.ubc.ca/~hoos/SATLIB/benchm.html funguje na velikosti cca. 200 proměných většinou do minuty (Počáteční implementace bez jakékoliv heuristiky).
+
+Propagace
+---------
+
+Každá proměná má seznam klauzulí, ve kterých může svým přiřazením vytvořit konflikt. V rámci propagace se kontroluje jestli zbývá přiřadit poslední proměná nebo jestli už nevzniknul konflikt a podle toho se jedná. Složitost je lineární s počtem klauzulí ve kterých se proměná vyskytuje.
 
 Účení nových klauzilí
 ---------------------
@@ -49,11 +54,11 @@ Selekční heuristika
 
 Heuristika která vybírá další proměné pro přiřazení bude hlavní věc, co se budu snažit ladit. Její implementace je nezávislá na solveru a je možné ji jednoduše nahrazovat.
 
-Naivní vybírací heuristika - vybere první volnou proměnou co najde a tý přiřadí takovou hodnotu, aby způsobila co nejméně konfliktů. (Implementovaná)
+Naivní vybírací heuristika - vybere první volnou proměnou co najde a tý přiřadí takovou hodnotu, aby způsobila co nejméně konfliktů. (Implementovaná pro nevážený SAT)
 
-Hladová váhová heuristika - vybere proměnou s největší váhou jako true a takto postupuje. Pravděpodobně v průběhu způsobí konflikt a nějakou proměnou to prohodí v důsledku.
+Hladová váhová heuristika - vybere proměnou s největší váhou jako true a takto postupuje. Pravděpodobně v průběhu způsobí konflikt a nějakou proměnou to prohodí v důsledku. Implementace je pomocí prioritní haldy, tedy složitost operací je $O(\ln n)$.
 
-Hladová váhová heuristika s prořezáváním - postupuje stejnějak Hladová váhová heuristika, akorát počítá maximální dosažitelnou váhu a když je horší než už nalezená, tak provede ořez. (Implementovaná)
+Hladová váhová heuristika s prořezáváním - postupuje stejně jak Hladová váhová heuristika, akorát počítá maximální dosažitelnou váhu a když je horší než už nalezená, tak provede ořez. (Implementovaná pro vážený SAT)
 
 Hladová váhová heuristika s prořezáváním
 ----------------------------------------
@@ -69,7 +74,7 @@ Byla použita hladová váhová heuristika s prořezáváním.
 Tabulka s deaktivovaným učením:
 
 | sada                      | průměrný čas | maximální čas |
-|---------------------------|-----------:|-----------:|
+|---------------------------|------------:|------------:|
 | `wuf20-78-N1`             |   $60,4 µs$ |  $128,1 µs$ |
 | `wuf50-201-N1`            |  $307,9 µs$ |   $3,01 ms$ |
 | `wuf75-310-N1`            |   $1,35 ms$ |   $5,29 ms$ |
@@ -89,7 +94,7 @@ Tabulka s deaktivovaným učením:
 Tabulka s aktivovaným učením:
 
 | sada                      | průměrný čas | maximální čas |
-|---------------------------|-----------:|-----------:|
+|---------------------------|------------:|------------:|
 | `wuf20-78-N1`             |   $71,1 µs$ |  $199,9 µs$ |
 | `wuf50-201-N1`            |  $330,1 µs$ |   $2,68 ms$ |
 | `wuf75-310-N1`            |   $1,39 ms$ |   $5,78 ms$ |
@@ -111,6 +116,8 @@ Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstr
 Výsledky samotného učení jsou rozpoluplné. Někde lehce pomohlo, jinde to jen spomalovalo.
 
 Mnou nalezené optimální řešení jsou ve složce `optimal_solutions`.
+
+Testováno bylo na AMD 2700x s frekvencí 4,1 GHz.
 
 Závěr
 -----

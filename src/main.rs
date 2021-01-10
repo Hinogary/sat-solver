@@ -514,7 +514,7 @@ where
         let conflict_level = self.level - 1; //assumes full propagate resolution
                                              // select higest implication level -> at least this need to be flipped (if not second choice)
 
-        // not as needed as I think it is (maybe cleanup?)
+        // not as needed as I think it is (maybe cleanup?) and name is misleading
         let implication_level = conflicts
             .iter()
             .map(|&conflict_id| &self.clauses[conflict_id])
@@ -543,7 +543,7 @@ where
 
         //println!("==================\nconflicts {}:\n==================", conflicts.len());
         // on too much conflicts do not try even learn
-        if conflicts.len() < 10 {
+        if conflicts.len() < 3 {
             for conflict_id in conflicts {
                 let clause = &self.clauses[conflict_id];
                 let mut new_clause = clause.clone();
@@ -597,8 +597,8 @@ where
 
                 // how to decide if clause is good?
                 if new_clause.literals.len() > 5
-                    || raised < 3
-                    || above_level_or_fixed < new_clause.literals.len() - 3
+                    || raised < 1
+                    || above_level_or_fixed + 2 < new_clause.literals.len()
                 {
                     continue;
                 }
@@ -615,6 +615,7 @@ where
         rtn
     }
 
+    // TODO: level is probably useless for this implementation
     fn switch_at_least_level(&mut self, level: usize) -> Result<(), ()> {
         while match self.trail.0.last().cloned() {
             // undo trail
