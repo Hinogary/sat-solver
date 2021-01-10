@@ -234,7 +234,7 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
             self.queue.remove(&!var);
         }
         // if attainable weight is higher than best_weight -> continue
-        self.best_weight < self.total_weight - self.lost_weight
+        self.best_weight <= self.total_weight - self.lost_weight
     }
     fn deassign(&mut self, var: Var) {
         let weight = self.weights[var.index];
@@ -363,9 +363,10 @@ where
     }
 
     /// unit propagation, Err is conflict (not propagated, just raw)
-    fn propagate(&mut self, to_propagate: usize) -> Result<usize, Vec<usize>> {
+    /// Ok(true) -> success and continue
+    /// Ok(false) -> success, but heuristics returned abort
+    fn propagate(&mut self, to_propagate: usize) -> Result<bool, Vec<usize>> {
         //println!("propagate: {}", to_propagate);
-        let mut deducted = 0;
         match self.trail.0[to_propagate] {
             TrailState {
                 var: Var { index, sign },
@@ -387,9 +388,9 @@ where
                             self.assigments[var.index] =
                                 VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
-                            // TODO: make use of return value
-                            self.sel_heuristics.assign(var, reason);
-                            deducted += 1
+                            if !self.sel_heuristics.assign(var, reason){
+                                return Ok(false)
+                            }
                         }
                         VarAssingable::Conflict => conflicts.push(*w),
                         VarAssingable::Nothing => (),
@@ -400,10 +401,13 @@ where
                 }
             }
         }
-        Ok(deducted)
+        Ok(true)
     }
 
     fn solve(&mut self) -> Result<Vec<bool>, ()> {
+        /*for (i, clause) in self.clauses.iter().enumerate(){
+            println!("{}: {}", i, clause);
+        }*/
         let mut to_propagate = self.trail.0.len(); //assumptions that vars are assigned in their other
         self.level = self.level;
         let mut found_solution = false;
@@ -451,7 +455,20 @@ where
             //propagate
             while to_propagate < self.trail.0.len() {
                 match self.propagate(to_propagate) {
-                    Ok(_) => to_propagate += 1,
+                    Ok(true) => to_propagate += 1,
+                    Ok(false) => {
+                        match self.switch_at_least_level(std::usize::MAX-1){
+                            Err(()) => {
+                                if found_solution {
+                                    return Ok(SH::solution(self));
+                                } else {
+                                    return Err(());
+                                }
+                            }
+                            _ => (),
+                        }
+                        to_propagate = self.trail.0.len() - 1
+                    }
                     Err(conflicts) => {
                         match self.resolve_conflicts(conflicts) {
                             Err(()) => {
@@ -531,32 +548,21 @@ where
 
                 /*
                 println!("{:?}", self.assigments);
-                println!("{}", clause);
+                println!("{} {}", clause, conflict_id >= self.given_len);
                 println!("impl_lvl: {}, conflict_lvl: {}", implication_level, conflict_level);
                 println!("level: {}", self.level);
                 */
-
-                if implication_level == 0
-                    && match self.trail.0[0] {
-                        TrailState {
-                            reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
-                            ..
-                        } => true,
-                        _ => false,
-                    }
-                {
-                    return Err(());
-                }
 
                 // (!x1 ^ !x2 ) = > x3
                 // change x3 to x1 v x2
                 // if x3 is having level >= implication_level
                 let mut raised = 0;
                 let mut i = 0;
-                let mut above_level = 0;
-                while i < new_clause.literals.len() {
+                let mut above_level_or_fixed = 0;
+                while i < new_clause.literals.len() && new_clause.literals.len() < 16 {
                     let index = new_clause.literals[i].index;
                     let assign = &self.assigments[index];
+                    //println!("new_clause: {}, trying to rise: x{}", new_clause, index);
                     match assign {
                         VarSource::Deducted(_, source, level) if *level <= implication_level => {
                             self.clauses[*source]
@@ -564,17 +570,17 @@ where
                                 .iter()
                                 .filter(|lit| lit.index != index)
                                 .for_each(|lit| new_clause.literals.push(*lit));
+                            // replace resolved literal with last literal
                             new_clause.literals[i] = new_clause.literals.pop().unwrap();
                             raised += 1;
+                            //println!("raising using {}", source);
                         }
-                        VarSource::Fixed(_, level) => {
-                            if *level > implication_level {
-                                above_level += 1;
-                            }
+                        VarSource::Fixed(_, _) => {
+                            above_level_or_fixed += 1;
                             i += 1
                         }
                         VarSource::Deducted(_, _, _) => {
-                            above_level += 1;
+                            above_level_or_fixed += 1;
                             i += 1
                         }
                         _ => i += 1,
@@ -585,21 +591,26 @@ where
                 new_clause.literals.sort_by(|a, b| a.index.cmp(&b.index));
                 new_clause.literals = new_clause.literals.into_iter().dedup().collect();
 
+                //println!("to learn: {}", new_clause);
+
                 // how to decide if clause is good?
                 if new_clause.literals.len() > 5
-                    || raised < 2
-                    || above_level < new_clause.literals.len() - 3
+                    || raised < 3
+                    || above_level_or_fixed < new_clause.literals.len() - 3
                 {
                     continue;
                 }
 
+                //println!("learning: {}", new_clause);
                 self.append_new_clause(new_clause);
             }
         }
 
-        //println!("{}", self.trail);
+        //println!("before: {}", self.trail);
         //undo trail and switch most recent choice, which is possible
-        self.switch_at_least_level(implication_level)
+        let rtn = self.switch_at_least_level(conflict_level);
+        //println!("after: {}", self.trail);
+        rtn
     }
 
     fn switch_at_least_level(&mut self, level: usize) -> Result<(), ()> {
@@ -681,9 +692,12 @@ where
     }
 }
 
+use std::time::{Instant};
+
 fn main() {
     let opts = Opts::from_args();
     let problem = dimacs_to_clausules(std::fs::read_to_string(opts.input_task).unwrap().as_str());
+    let start = Instant::now();
     match problem {
         ProblemType::Unweighted(clauses) => {
             let mut solver = Solver::init(clauses, NaiveSelectionHeuristics::new()).unwrap();
@@ -698,11 +712,16 @@ fn main() {
                     solver.test_satisfied(&assigns[..])
                 )
             );
+            for (i, val) in assigns.iter().enumerate(){
+                print!(" {}", if *val {(i as isize) + 1} else {-(i as isize)-1});
+            }
+            println!(" 0");
         }
         ProblemType::Weighted(clauses, weights) => {
             let mut solver =
                 Solver::init(clauses, GreedyWeightSelectionHeuristics::new(weights)).unwrap();
             let assigns = solver.solve().unwrap();
+            // not free test, but have almost zero impact ...
             assert!(
                 solver.test_satisfied(&assigns[..]) == true,
                 format!(
@@ -713,10 +732,16 @@ fn main() {
                     solver.test_satisfied(&assigns[..])
                 )
             );
-            println!("Weight: {}", solver.sel_heuristics.best_weight);
+            print!("{}", solver.sel_heuristics.best_weight);
+            for (i, val) in assigns.iter().enumerate(){
+                print!(" {}", if *val {(i as isize) + 1} else {-(i as isize)-1});
+            }
+            println!(" 0");
         }
     }
-    //println!("{:#?}", solver);
+    let duration = start.elapsed();
+    println!("time: {:?}", duration);
+    println!("{}", duration.as_secs_f64())
 }
 
 #[derive(StructOpt, Debug)]
