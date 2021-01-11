@@ -189,14 +189,12 @@ struct GreedyWeightSelectionHeuristics {
     best_solution: Vec<bool>,
     weights: Vec<usize>,
     queue: PriorityQueue<Var, usize>,
-    total_weight: usize,
-    // weight lost to false assigments
-    lost_weight: usize,
-    curent_weight: usize,
+    free_weight: usize,
+    current_weight: usize,
 }
 
 impl GreedyWeightSelectionHeuristics {
-    fn new(weights: Vec<usize>) -> GreedyWeightSelectionHeuristics {
+    fn new(weights: Vec<usize>, _clauses: &Vec<Clause>) -> GreedyWeightSelectionHeuristics {
         let mut queue = PriorityQueue::new();
         for (i, w) in weights.iter().enumerate() {
             queue.push(
@@ -207,13 +205,15 @@ impl GreedyWeightSelectionHeuristics {
                 *w,
             );
         }
+
+        let free_weight = weights.iter().sum();
+
         GreedyWeightSelectionHeuristics {
             best_solution: vec![false; weights.len()],
-            curent_weight: 0,
+            current_weight: 0,
             best_weight: 0,
             queue,
-            total_weight: weights.iter().sum(),
-            lost_weight: 0,
+            free_weight,
             weights,
         }
     }
@@ -226,34 +226,34 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     // assigns and asks if continue
     fn assign(&mut self, var: Var, _: ReasonLock) -> bool {
         let weight = self.weights[var.index];
+        self.free_weight -= weight;
         if var.sign {
-            self.curent_weight += weight;
+            self.current_weight += weight;
             self.queue.remove(&var);
         } else {
-            self.lost_weight += weight;
             self.queue.remove(&!var);
         }
         // if attainable weight is higher than best_weight -> continue
-        self.best_weight <= self.total_weight - self.lost_weight
+        self.best_weight <= self.current_weight + self.free_weight
     }
     fn deassign(&mut self, var: Var) {
         let weight = self.weights[var.index];
+        self.free_weight += weight;
         if var.sign {
-            self.curent_weight -= weight;
+            self.current_weight -= weight;
             self.queue.push(var, weight);
         } else {
-            self.lost_weight -= weight;
             self.queue.push(!var, weight);
         }
     }
     // found solution and asks if final solution
     fn final_solution(&mut self, assigments: &[VarSource]) -> bool {
-        if self.curent_weight > self.best_weight {
+        if self.current_weight > self.best_weight {
             self.best_solution
                 .iter_mut()
                 .zip(assigments.iter())
                 .for_each(|(s, a)| *s = a.into_bool());
-            self.best_weight = self.curent_weight;
+            self.best_weight = self.current_weight;
         }
         false // force for full search space
     }
@@ -388,8 +388,8 @@ where
                             self.assigments[var.index] =
                                 VarSource::Deducted(var.sign, *w, self.level - 1);
                             self.locked[*w] = true;
-                            if !self.sel_heuristics.assign(var, reason){
-                                return Ok(false)
+                            if !self.sel_heuristics.assign(var, reason) {
+                                return Ok(false);
                             }
                         }
                         VarAssingable::Conflict => conflicts.push(*w),
@@ -430,6 +430,7 @@ where
                     }
                 }
             }
+            //fixing variable
             if to_propagate == self.trail.0.len() {
                 let var_to_fix = SH::select_variable(self);
                 let reason = ReasonLock::Fixed(TrailChoice::FirstChoice);
@@ -457,7 +458,7 @@ where
                 match self.propagate(to_propagate) {
                     Ok(true) => to_propagate += 1,
                     Ok(false) => {
-                        match self.switch_at_least_level(std::usize::MAX-1){
+                        match self.switch_at_least_level(std::usize::MAX - 1) {
                             Err(()) => {
                                 if found_solution {
                                     return Ok(SH::solution(self));
@@ -610,7 +611,7 @@ where
 
         //println!("before: {}", self.trail);
         //undo trail and switch most recent choice, which is possible
-        let rtn = self.switch_at_least_level(conflict_level);
+        let rtn = self.switch_at_least_level(std::usize::MAX - 1);
         //println!("after: {}", self.trail);
         rtn
     }
@@ -695,7 +696,7 @@ where
     }
 }
 
-use std::time::{Instant};
+use std::time::Instant;
 
 fn main() {
     let opts = Opts::from_args();
@@ -715,14 +716,37 @@ fn main() {
                     solver.test_satisfied(&assigns[..])
                 )
             );
-            for (i, val) in assigns.iter().enumerate(){
-                print!(" {}", if *val {(i as isize) + 1} else {-(i as isize)-1});
+            for (i, val) in assigns.iter().enumerate() {
+                print!(
+                    " {}",
+                    if *val {
+                        (i as isize) + 1
+                    } else {
+                        -(i as isize) - 1
+                    }
+                );
             }
             println!(" 0");
         }
-        ProblemType::Weighted(clauses, weights) => {
-            let mut solver =
-                Solver::init(clauses, GreedyWeightSelectionHeuristics::new(weights)).unwrap();
+        ProblemType::Weighted(mut clauses, weights) => {
+
+            // reordering in such way, that negatives with high weights are concluded sooner
+            clauses.sort_by(|a, b| {
+                b.literals
+                    .iter()
+                    .map(|x| if !x.sign { weights[x.index] } else { 0 })
+                    .sum::<usize>()
+                    .cmp(
+                        &a.literals
+                            .iter()
+                            .map(|x| if !x.sign { weights[x.index] } else { 0 })
+                            .sum::<usize>(),
+                    )
+            });
+
+
+            let heur = GreedyWeightSelectionHeuristics::new(weights, &clauses);
+            let mut solver = Solver::init(clauses, heur).unwrap();
             let assigns = solver.solve().unwrap();
             // not free test, but have almost zero impact ...
             assert!(
@@ -736,8 +760,15 @@ fn main() {
                 )
             );
             print!("{}", solver.sel_heuristics.best_weight);
-            for (i, val) in assigns.iter().enumerate(){
-                print!(" {}", if *val {(i as isize) + 1} else {-(i as isize)-1});
+            for (i, val) in assigns.iter().enumerate() {
+                print!(
+                    " {}",
+                    if *val {
+                        (i as isize) + 1
+                    } else {
+                        -(i as isize) - 1
+                    }
+                );
             }
             println!(" 0");
         }

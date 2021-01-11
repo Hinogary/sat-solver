@@ -65,7 +65,6 @@ Hladová váhová heuristika s prořezáváním
 
 Vlastně už tahle jednoduchá heuristika fungovala natolik dobře, že nejtěžší problémy z sady wuf-A nalezne nejlepší řešení řádově v milisekundách, tak není nutné vymýšlet lepší heuristiky. Ještě jsem ani nezačal ořezávavat agresivněji prostor, tak nalezené řešení je zaručeně nejlepší.
 
-
 Výsledky
 --------
 
@@ -111,11 +110,32 @@ Tabulka s aktivovaným učením:
 | `wuf20-91-A1`             |   $68,4 µs$ |  $434,3 µs$ |
 | `wuf100-430-A1`           |   $8,79 ms$ |   $67,0 ms$ |
 
-Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $105,7 ms$.
+Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $83,9 ms$ (s deaktivovaným učením tento čas stoupne na $105,7 ms$).
 
-Výsledky samotného učení jsou rozpoluplné. Někde lehce pomohlo, jinde to jen spomalovalo.
+Pro sady `N1` a `M1` jsem vcelku efektivně našel optimální řešení. Jak je nastíněno v zadání, tak váhy umožnují ořezávat prostor opravdu významně, tak nejdelší čas je pouze $6,53 ms$.
+
+Nejtěžší problémy pro můj řešič jsou sady `Q1` a `R1`. Nejspíše to jsou stejné problémy akorát s jinými váhami. Jsou už dostatečně těžké na to, že to jsou jediné sady, kde učení lehce pomohlo. U ostatních sad jsou výsledky samotného učení rozpoluplné.
 
 Mnou nalezené optimální řešení jsou ve složce `optimal_solutions`.
+
+Zkusil jsem spustit 10 nezkrácených problémů s 150 proměnými a 645 klauzulemi. Váhy jsem dal náhodné v rozmezí 100 až 1500 - bez ohledu na řešení, tak se dá očekávat, že to budou velmi těžké problémy.
+
+| problém                 |     čas    |
+|-------------------------|-----------:|
+| `wuf150-01`             |   $37,3 s$ |
+| `wuf150-02`             |  $520,2 s$ |
+| `wuf150-03`             |   $76,3 s$ |
+| `wuf150-04`             |   $49,8 s$ |
+| `wuf150-05`             |  $225,2 s$ |
+| `wuf150-06`             |    $8,0 s$ |
+| `wuf150-07`             |    $8,6 s$ |
+| `wuf150-08`             |   $29,9 s$ |
+| `wuf150-09`             |    $5,2 s$ |
+| `wuf150-010`            |   $13,2 s$ |
+| průměrný čas            |   $97,4 s$ |
+| maximální čas           |  $520,2 s$ |
+
+Výsledek je celkem přesvědčivý, akorát 2 instance byli těžší a ostatní řešič zvládl v desítkách sekund. Dá se předpokládat, že ty těžké instance měli malé řešení vzhledem k součtu vah a proto nutili řešič procházet mnohem víc prostoru.
 
 Testováno bylo na AMD 2700x s frekvencí 4,1 GHz.
 

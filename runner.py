@@ -30,7 +30,8 @@ def main(path='wufs/wuf-N', max_workers=4):
         data[d] = instance
         files = os.listdir(os.path.join(path, d))
         for file in files:
-            instance[file[:-6]] = res = instance.get(file[:-6],{})
+            dot = file.find('.')
+            instance[file[:dot]] = res = instance.get(file[:dot],{})
             f = executor.submit(fn, os.path.join(path, d, file), res)
             futures.append(f)
     for f in futures:
@@ -62,5 +63,6 @@ def process_data(data, path='wufs/wuf-N'):
 
 def fn(p, res):
     solution, time = time_it(p)
+    print(p, time, solution)
     res['time'] = time
     res['solution'] = solution
