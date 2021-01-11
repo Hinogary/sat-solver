@@ -491,7 +491,7 @@ where
     fn append_new_clause(&mut self, clause: Clause) {
         let clause_id = self.clauses.len();
         match clause.literals[..] {
-            [_] => panic!(),
+            //[_] => panic!(), -- asi bych měl nějak ošetřit ...
             [] => panic!(), // empty-clause -> unsatisfable
             ref vars => {
                 //add watchers
@@ -743,7 +743,6 @@ fn main() {
                             .sum::<usize>(),
                     )
             });
-
 
             let heur = GreedyWeightSelectionHeuristics::new(weights, &clauses);
             let mut solver = Solver::init(clauses, heur).unwrap();

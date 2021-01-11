@@ -3,7 +3,7 @@
 SAT řešič
 =========
 
-Je daná množina množin literálů, kde v každé vnitřní množině je potřeba splnit alespoň jeden literál.
+Je daná množina množin literálů, kde v každé vnitřní množině je potřeba splnit alespoň jeden literál. Úkolem je najít takové přiřazení do proměných, aby splňovali tuto podmínku.
 
 Implementace
 ------------
@@ -23,7 +23,7 @@ time: 4.5457ms
 Architektura
 ------------
 
-Základní architektura je CDCL řešič s efektivní implementací propagace, která je inspirována řešičem MiniSAT. Jednotlivé reprezentace nejsou tak vymazlené jako jsou MiniSAT, tak rychlostí se mu nejspíše ani neblížim.
+Základní architektura je CDCL řešič s efektivní implementací propagace, která je inspirována řešičem MiniSAT. Jednotlivé reprezentace nejsou tak vymazlené jako jsou MiniSAT, tak rychlostí se mu nejspíše ani neblížim. I přes inspiraci je podobnost v kódu velmi malá - celý zdrojový kód je nový.
 
 Na základních (splnitelných) problémech ze stránky https://www.cs.ubc.ca/~hoos/SATLIB/benchm.html funguje na velikosti cca. 200 proměných většinou do minuty (Počáteční implementace bez jakékoliv heuristiky).
 
@@ -43,7 +43,7 @@ Aktuální pravidla jsou:
  - klauzule, která by měla víc než 5 literálů, tak se nenaučí
  - klauzule by měla být vyhodnotitelná z co nejvíce zafixovaných proměných
  - jednotlivý literály se zaměnují tak aby bylo možné dřív najít konflikt
- - např v $x_0 ∨ x_1 ∨ x_2$ a víme $¬x_2 ∨ x_3 ∨ x_4$ (z toho plyne $x_2 ⇒ x_3 ∨ x_4$), tak $x_2$ nahradíme a máme novou klauzuli $x_0 ∨ x_1 ∨ x_3 ∨ x_4$ (tohle opakuju dokud si myslím, že to má smysl)
+ - např v $x_0 ∨ x_1 ∨ x_2$ a víme $¬x_2 ∨ x_3 ∨ x_4$ (to je ekvivalentní s $x_2 ⇒ x_3 ∨ x_4$), tak $x_2$ nahradíme a máme novou klauzuli $x_0 ∨ x_1 ∨ x_3 ∨ x_4$ (tohle opakuju dokud si myslím, že to má smysl)
 
 Bylo by asi fajn ty parametry učení dát parametrizovatelný, nicméně aktuálně nejsou.
 
@@ -72,70 +72,68 @@ Byla použita hladová váhová heuristika s prořezáváním.
 
 Tabulka s deaktivovaným učením:
 
-| sada                      | průměrný čas | maximální čas |
-|---------------------------|------------:|------------:|
-| `wuf20-78-N1`             |   $60,4 µs$ |  $128,1 µs$ |
-| `wuf50-201-N1`            |  $307,9 µs$ |   $3,01 ms$ |
-| `wuf75-310-N1`            |   $1,35 ms$ |   $5,29 ms$ |
-| `wuf20-78-M1`             |   $61,2 µs$ |  $139,0 µs$ |
-| `wuf50-201-M1`            |  $306,5 µs$ |   $2,34 ms$ |
-| `wuf75-310-M1`            |   $1,34 ms$ |   $5,72 ms$ |
-| `wuf20-78-Q1`             |  $108,9 µs$ |  $276,6 µs$ |
-| `wuf50-201-Q1`            |   $2,35 ms$ |   $9,65 ms$ |
-| `wuf75-310-Q1`            |   $27,6 ms$ |  $102,1 ms$ |
-| `wuf20-78-R1`             |  $107,7 µs$ |  $346,9 µs$ |
-| `wuf50-201-R1`            |   $2,37 ms$ |   $13,5 ms$ |
-| `wuf75-310-R1`            |   $27,6 ms$ |  $105,7 ms$ |
-| `wuf20-88-A1`             |   $72,5 µs$ |  $226,6 µs$ |
-| `wuf20-91-A1`             |   $69,1 µs$ |  $198,1 µs$ |
-| `wuf100-430-A1`           |   $8,31 ms$ |   $60,7 ms$ |
+| sada               | průměrný čas | maximální čas |
+|--------------------|------------:|------------:|
+| `wuf20-78-N1`      |   $60,4 µs$ |  $128,1 µs$ |
+| `wuf50-201-N1`     |  $307,9 µs$ |   $3,01 ms$ |
+| `wuf75-310-N1`     |   $1,35 ms$ |   $5,29 ms$ |
+| `wuf20-78-M1`      |   $61,2 µs$ |  $139,0 µs$ |
+| `wuf50-201-M1`     |  $306,5 µs$ |   $2,34 ms$ |
+| `wuf75-310-M1`     |   $1,34 ms$ |   $5,72 ms$ |
+| `wuf20-78-Q1`      |  $108,9 µs$ |  $276,6 µs$ |
+| `wuf50-201-Q1`     |   $2,35 ms$ |   $9,65 ms$ |
+| `wuf75-310-Q1`     |   $27,6 ms$ |  $102,1 ms$ |
+| `wuf20-78-R1`      |  $107,7 µs$ |  $346,9 µs$ |
+| `wuf50-201-R1`     |   $2,37 ms$ |   $13,5 ms$ |
+| `wuf75-310-R1`     |   $27,6 ms$ |  $105,7 ms$ |
+| `wuf20-88-A1`      |   $72,5 µs$ |  $226,6 µs$ |
+| `wuf20-91-A1`      |   $69,1 µs$ |  $198,1 µs$ |
+| `wuf100-430-A1`    |   $8,31 ms$ |   $60,7 ms$ |
 
 Tabulka s aktivovaným učením:
 
-| sada                      | průměrný čas | maximální čas |
-|---------------------------|------------:|------------:|
-| `wuf20-78-N1`             |   $71,1 µs$ |  $199,9 µs$ |
-| `wuf50-201-N1`            |  $330,1 µs$ |   $2,68 ms$ |
-| `wuf75-310-N1`            |   $1,39 ms$ |   $5,78 ms$ |
-| `wuf20-78-M1`             |   $70,0 µs$ |  $188,9 µs$ |
-| `wuf50-201-M1`            |  $329,7 µs$ |   $3,29 ms$ |
-| `wuf75-310-M1`            |   $1,41 ms$ |   $6,53 ms$ |
-| `wuf20-78-Q1`             |  $135,7 µs$ |  $470,7 µs$ |
-| `wuf50-201-Q1`            |   $2,59 ms$ |   $10,2 ms$ |
-| `wuf75-310-Q1`            |   $27,4 ms$ |   $83,9 ms$ |
-| `wuf20-78-R1`             |  $135,5 µs$ |  $400,0 µs$ |
-| `wuf50-201-R1`            |   $2,57 ms$ |   $10,8 ms$ |
-| `wuf75-310-R1`            |   $27,3 ms$ |   $81,9 ms$ |
-| `wuf20-88-A1`             |   $69,7 µs$ |  $152,9 µs$ |
-| `wuf20-91-A1`             |   $68,4 µs$ |  $434,3 µs$ |
-| `wuf100-430-A1`           |   $8,79 ms$ |   $67,0 ms$ |
+| sada               | průměrný čas | maximální čas |
+|--------------------|------------:|------------:|
+| `wuf20-78-N1`      |   $74.4 µs$ |  $140,4 µs$ |
+| `wuf50-201-N1`     |  $329,0 µs$ |   $2,34 ms$ |
+| `wuf75-310-N1`     |   $1,25 ms$ |   $4,78 ms$ |
+| `wuf20-78-M1`      |   $77,8 µs$ |  $126,8 µs$ |
+| `wuf50-201-M1`     |  $324,9 µs$ |   $2,46 ms$ |
+| `wuf75-310-M1`     |   $1,29 ms$ |   $4,99 ms$ |
+| `wuf20-78-Q1`      |  $128,9 µs$ |  $312,3 µs$ |
+| `wuf50-201-Q1`     |   $2,22 ms$ |   $8,82 ms$ |
+| `wuf75-310-Q1`     |   $24,8 ms$ |   $76,9 ms$ |
+| `wuf20-78-R1`      |  $132,8 µs$ |  $333,5 µs$ |
+| `wuf50-201-R1`     |   $2,27 ms$ |   $8,81 ms$ |
+| `wuf75-310-R1`     |   $23,9 ms$ |   $74,7 ms$ |
+| `wuf20-88-A1`      |   $83,4 µs$ |  $166,6 µs$ |
+| `wuf20-91-A1`      |   $82,1 µs$ |  $137,4 µs$ |
+| `wuf100-430-A1`    |   $7,20 ms$ |   $52,1 ms$ |
 
-Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $83,9 ms$ (s deaktivovaným učením tento čas stoupne na $105,7 ms$).
+Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $76,9 ms$ (s deaktivovaným učením tento čas stoupne na $105,7 ms$).
 
-Pro sady `N1` a `M1` jsem vcelku efektivně našel optimální řešení. Jak je nastíněno v zadání, tak váhy umožnují ořezávat prostor opravdu významně, tak nejdelší čas je pouze $6,53 ms$.
+Zkoušel jsem porovnávat dodané nalezené optimální řešení a mnou nalezené optimální řešení. Pro `wuf20-88-A1` a `wuf20-91-A1` jsem došel ke stejným výsledkům. Pro `wuf20-78-M1` taktéž. Pro `wuf50-201-M1` a `wuf50-201-Q1` těch daných řešení už moc není, ale na těch co jsou tak se shoduju. Na `wuf20-78-Q1` a `wuf20-78-N1` také shoda. Vzhledem k počtu shod je pravděpodobné, že moje implementace funguje správně.
 
-Nejtěžší problémy pro můj řešič jsou sady `Q1` a `R1`. Nejspíše to jsou stejné problémy akorát s jinými váhami. Jsou už dostatečně těžké na to, že to jsou jediné sady, kde učení lehce pomohlo. U ostatních sad jsou výsledky samotného učení rozpoluplné.
+Zkusil jsem spustit 10 nezkrácených problémů s 150 proměnými a 645 klauzulemi. Váhy jsem dal náhodné v rozmezí 100 až 1500 - bez ohledu na řešení. Dá očekávat, že to budou velmi těžké problémy.
 
-Mnou nalezené optimální řešení jsou ve složce `optimal_solutions`.
-
-Zkusil jsem spustit 10 nezkrácených problémů s 150 proměnými a 645 klauzulemi. Váhy jsem dal náhodné v rozmezí 100 až 1500 - bez ohledu na řešení, tak se dá očekávat, že to budou velmi těžké problémy.
-
-| problém                 |     čas    |
-|-------------------------|-----------:|
-| `wuf150-01`             |   $37,3 s$ |
-| `wuf150-02`             |  $520,2 s$ |
-| `wuf150-03`             |   $76,3 s$ |
-| `wuf150-04`             |   $49,8 s$ |
-| `wuf150-05`             |  $225,2 s$ |
-| `wuf150-06`             |    $8,0 s$ |
-| `wuf150-07`             |    $8,6 s$ |
-| `wuf150-08`             |   $29,9 s$ |
-| `wuf150-09`             |    $5,2 s$ |
-| `wuf150-010`            |   $13,2 s$ |
-| průměrný čas            |   $97,4 s$ |
-| maximální čas           |  $520,2 s$ |
+| problém          |     čas    |
+|------------------|-----------:|
+| `wuf150-01`      |   $37,3 s$ |
+| `wuf150-02`      |  $520,2 s$ |
+| `wuf150-03`      |   $76,3 s$ |
+| `wuf150-04`      |   $49,8 s$ |
+| `wuf150-05`      |  $225,2 s$ |
+| `wuf150-06`      |    $8,0 s$ |
+| `wuf150-07`      |    $8,6 s$ |
+| `wuf150-08`      |   $29,9 s$ |
+| `wuf150-09`      |    $5,2 s$ |
+| `wuf150-010`     |   $13,2 s$ |
+| průměrný čas     |   $97,4 s$ |
+| maximální čas    |  $520,2 s$ |
 
 Výsledek je celkem přesvědčivý, akorát 2 instance byli těžší a ostatní řešič zvládl v desítkách sekund. Dá se předpokládat, že ty těžké instance měli malé řešení vzhledem k součtu vah a proto nutili řešič procházet mnohem víc prostoru.
+
+Mnou nalezené optimální řešení jsou ve složce `optimal_solutions` spolu s extrémní sadou `wuf150`. Spouštěl jsem to pomocí skriptu `runner.py` na 4-6 jádrech najednou. Například celá sada `wuf-N1` trvá $7,6 s$ na 6 jádrech.
 
 Testováno bylo na AMD 2700x s frekvencí 4,1 GHz.
 
@@ -145,3 +143,5 @@ Závěr
 Návaznost na zadané metody je taková, že naučené klauzule tvoří tabu, kam se řešič už nebude přístě koukat. Rychlost je taková, že je těžké na něm ladit jednotlivé nastavení. Zkusil jsem vypnout učení a výsledky jsou nepřesvědčivé v tom, jestli to vůbec pomáhá.
 
 Je zde prostor pro vylepšení, například ořezávání je celkem naivní. Nicméně rychlost je tak velká, že mě to nepřijde nutné.
+
+S výsledkem jsem spokojený, myslím že řešič může mít nějaké uptlatnění. Ikdyby to mělo být jen hledání optimálního řešení pro tento předmět.
