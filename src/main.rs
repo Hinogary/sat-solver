@@ -418,7 +418,7 @@ where
                     return Ok(SH::solution(self));
                 } else {
                     found_solution = true;
-                    match self.switch_at_least_level(std::usize::MAX - 1) {
+                    match self.switch_at_least_level(/*std::usize::MAX - 1*/) {
                         Err(()) => {
                             if found_solution {
                                 return Ok(SH::solution(self));
@@ -441,7 +441,7 @@ where
                 self.assigments[var_to_fix.index] = VarSource::Fixed(var_to_fix.sign, self.level);
                 self.level += 1;
                 if !self.sel_heuristics.assign(var_to_fix, reason) {
-                    match self.switch_at_least_level(std::usize::MAX - 1) {
+                    match self.switch_at_least_level(/*std::usize::MAX - 1*/) {
                         Err(()) => {
                             if found_solution {
                                 return Ok(SH::solution(self));
@@ -458,7 +458,7 @@ where
                 match self.propagate(to_propagate) {
                     Ok(true) => to_propagate += 1,
                     Ok(false) => {
-                        match self.switch_at_least_level(std::usize::MAX - 1) {
+                        match self.switch_at_least_level(/*std::usize::MAX - 1*/) {
                             Err(()) => {
                                 if found_solution {
                                     return Ok(SH::solution(self));
@@ -611,16 +611,16 @@ where
 
         //println!("before: {}", self.trail);
         //undo trail and switch most recent choice, which is possible
-        let rtn = self.switch_at_least_level(std::usize::MAX - 1);
+        let rtn = self.switch_at_least_level(/*std::usize::MAX - 1*/);
         //println!("after: {}", self.trail);
         rtn
     }
 
     // TODO: level is probably useless for this implementation
-    fn switch_at_least_level(&mut self, level: usize) -> Result<(), ()> {
+    fn switch_at_least_level(&mut self/*, level: usize*/) -> Result<(), ()> {
         while match self.trail.0.last().cloned() {
             // undo trail
-            Some(TrailState {
+            /*Some(TrailState {
                 var,
                 reason: ReasonLock::Deducted(source),
             }) if self.level > level + 1 => {
@@ -640,7 +640,7 @@ where
                 self.assigments[var.index] = VarSource::Undef;
                 self.level -= 1;
                 true
-            }
+            }*/
             Some(TrailState {
                 var,
                 reason: ReasonLock::Deducted(source),
