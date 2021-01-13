@@ -138,6 +138,7 @@ where
     // found solution and asks if final solution
     fn final_solution(&mut self, assigments: &[VarSource]) -> bool;
     fn solution(solver: &Solver<Self>) -> Vec<bool>;
+    fn appears_in_conflict(&mut self, var: Var);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,9 +180,71 @@ impl SelectionHeuristics for NaiveSelectionHeuristics {
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.assigments.iter().map(|x| x.into_bool()).collect()
     }
+    fn appears_in_conflict(&mut self, _: Var){}
 }
 
 use priority_queue::PriorityQueue;
+
+#[derive(Debug)]
+struct PrioritySelectionHeuristics {
+    queue: PriorityQueue<Var, usize>,
+    priorities: Vec<usize>
+}
+
+impl PrioritySelectionHeuristics {
+    fn new(clauses: &Vec<Clause>) -> Self {
+        let nvars = clauses.iter().map(|c| c.literals.iter().map(|l|l.index).max().unwrap()).max().unwrap() + 1;
+        let mut queue = PriorityQueue::new();
+        for i in 0..nvars {
+            queue.push(
+                Var {
+                    index: i,
+                    sign: true,
+                },
+                0,
+            );
+        }
+
+        PrioritySelectionHeuristics {
+            priorities: vec![0; nvars],
+            queue,
+        }
+    }
+}
+
+impl SelectionHeuristics for PrioritySelectionHeuristics {
+    fn select_variable(solver: &mut Solver<Self>) -> Var {
+        *solver.sel_heuristics.queue.peek().unwrap().0
+    }
+    // assigns and asks if continue
+    fn assign(&mut self, var: Var, _: ReasonLock) -> bool {
+        self.priorities[var.index] += 1;
+        if var.sign {
+            self.queue.remove(&var);
+        } else {
+            self.queue.remove(&!var);
+        }
+        // if attainable weight is higher than best_weight -> continue
+        true
+    }
+    fn deassign(&mut self, var: Var) {
+        if var.sign {
+            self.queue.push(var, self.priorities[var.index]);
+        } else {
+            self.queue.push(!var, self.priorities[var.index]);
+        }
+    }
+    // found solution and asks if final solution
+    fn final_solution(&mut self, _: &[VarSource]) -> bool {
+        true
+    }
+    fn solution(solver: &Solver<Self>) -> Vec<bool> {
+        solver.assigments.iter().map(|x| x.into_bool()).collect()
+    }
+    fn appears_in_conflict(&mut self, var: Var){
+        self.priorities[var.index] += 1
+    }
+}
 
 #[derive(Debug)]
 struct GreedyWeightSelectionHeuristics {
@@ -262,6 +325,9 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     }
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.sel_heuristics.best_solution.clone()
+    }
+    fn appears_in_conflict(&mut self, var: Var){
+        self.priorities[var.index] += 1
     }
 }
 
@@ -551,6 +617,7 @@ where
             for conflict_id in conflicts {
                 let clause = &self.clauses[conflict_id];
                 let mut new_clause = clause.clone();
+                new_clause.literals.iter().for_each(|lit| self.sel_heuristics.appears_in_conflict(*lit));
 
                 /*
                 println!("{:?}", self.assigments);
@@ -707,7 +774,8 @@ fn main() {
     let start = Instant::now();
     match problem {
         ProblemType::Unweighted(clauses) => {
-            let mut solver = Solver::init(clauses, NaiveSelectionHeuristics::new()).unwrap();
+            let heur = PrioritySelectionHeuristics::new(&clauses);
+            let mut solver = Solver::init(clauses, heur).unwrap();
             let assigns = solver.solve().unwrap();
             assert!(
                 solver.test_satisfied(&assigns[..]) == true,

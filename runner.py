@@ -63,6 +63,6 @@ def process_data(data, path='wufs/wuf-N'):
 
 def fn(p, res):
     solution, time = time_it(p)
-    #print(p, time, solution)
+    print(p, time) #, solution)
     res['time'] = time
     res['solution'] = solution
