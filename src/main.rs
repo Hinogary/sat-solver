@@ -188,9 +188,10 @@ struct GreedyWeightSelectionHeuristics {
     best_weight: usize,
     best_solution: Vec<bool>,
     weights: Vec<usize>,
-    queue: PriorityQueue<Var, usize>,
+    queue: PriorityQueue<Var, (usize, usize)>,
     free_weight: usize,
     current_weight: usize,
+    priorities: Vec<usize>
 }
 
 impl GreedyWeightSelectionHeuristics {
@@ -202,7 +203,7 @@ impl GreedyWeightSelectionHeuristics {
                     index: i,
                     sign: true,
                 },
-                *w,
+                (0, *w),
             );
         }
 
@@ -210,6 +211,7 @@ impl GreedyWeightSelectionHeuristics {
 
         GreedyWeightSelectionHeuristics {
             best_solution: vec![false; weights.len()],
+            priorities: vec![0; weights.len()],
             current_weight: 0,
             best_weight: 0,
             queue,
@@ -226,6 +228,7 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     // assigns and asks if continue
     fn assign(&mut self, var: Var, _: ReasonLock) -> bool {
         let weight = self.weights[var.index];
+        self.priorities[var.index] += 1;
         self.free_weight -= weight;
         if var.sign {
             self.current_weight += weight;
@@ -241,9 +244,9 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
         self.free_weight += weight;
         if var.sign {
             self.current_weight -= weight;
-            self.queue.push(var, weight);
+            self.queue.push(var, (self.priorities[var.index], weight));
         } else {
-            self.queue.push(!var, weight);
+            self.queue.push(!var, (self.priorities[var.index], weight));
         }
     }
     // found solution and asks if final solution
