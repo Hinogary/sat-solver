@@ -180,7 +180,7 @@ impl SelectionHeuristics for NaiveSelectionHeuristics {
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.assigments.iter().map(|x| x.into_bool()).collect()
     }
-    fn appears_in_conflict(&mut self, _: Var){}
+    fn appears_in_conflict(&mut self, _: Var) {}
 }
 
 use priority_queue::PriorityQueue;
@@ -188,12 +188,17 @@ use priority_queue::PriorityQueue;
 #[derive(Debug)]
 struct PrioritySelectionHeuristics {
     queue: PriorityQueue<Var, usize>,
-    priorities: Vec<usize>
+    priorities: Vec<usize>,
 }
 
 impl PrioritySelectionHeuristics {
     fn new(clauses: &Vec<Clause>) -> Self {
-        let nvars = clauses.iter().map(|c| c.literals.iter().map(|l|l.index).max().unwrap()).max().unwrap() + 1;
+        let nvars = clauses
+            .iter()
+            .map(|c| c.literals.iter().map(|l| l.index).max().unwrap())
+            .max()
+            .unwrap()
+            + 1;
         let mut queue = PriorityQueue::new();
         for i in 0..nvars {
             queue.push(
@@ -241,8 +246,8 @@ impl SelectionHeuristics for PrioritySelectionHeuristics {
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.assigments.iter().map(|x| x.into_bool()).collect()
     }
-    fn appears_in_conflict(&mut self, var: Var){
-        self.priorities[var.index] += 1
+    fn appears_in_conflict(&mut self, var: Var) {
+        self.priorities[var.index] += 3
     }
 }
 
@@ -254,7 +259,7 @@ struct GreedyWeightSelectionHeuristics {
     queue: PriorityQueue<Var, (usize, usize)>,
     free_weight: usize,
     current_weight: usize,
-    priorities: Vec<usize>
+    priorities: Vec<usize>,
 }
 
 impl GreedyWeightSelectionHeuristics {
@@ -326,8 +331,8 @@ impl SelectionHeuristics for GreedyWeightSelectionHeuristics {
     fn solution(solver: &Solver<Self>) -> Vec<bool> {
         solver.sel_heuristics.best_solution.clone()
     }
-    fn appears_in_conflict(&mut self, var: Var){
-        self.priorities[var.index] += 1
+    fn appears_in_conflict(&mut self, var: Var) {
+        self.priorities[var.index] += 3
     }
 }
 
@@ -613,11 +618,14 @@ where
 
         //println!("==================\nconflicts {}:\n==================", conflicts.len());
         // on too much conflicts do not try even learn
-        if conflicts.len() < 3 {
+        if conflicts.len() < 4 {
             for conflict_id in conflicts {
                 let clause = &self.clauses[conflict_id];
                 let mut new_clause = clause.clone();
-                new_clause.literals.iter().for_each(|lit| self.sel_heuristics.appears_in_conflict(*lit));
+                new_clause
+                    .literals
+                    .iter()
+                    .for_each(|lit| self.sel_heuristics.appears_in_conflict(*lit));
 
                 /*
                 println!("{:?}", self.assigments);
@@ -667,15 +675,28 @@ where
                 //println!("to learn: {}", new_clause);
 
                 // how to decide if clause is good?
-                if new_clause.literals.len() > 5
-                    || raised < 1
-                    || above_level_or_fixed + 2 < new_clause.literals.len()
+                if new_clause.literals.len() > 0
+                    && (new_clause.literals.len() > 5
+                        || raised < 1
+                        || above_level_or_fixed + 2 < new_clause.literals.len())
                 {
                     continue;
                 }
 
-                //println!("learning: {}", new_clause);
-                self.append_new_clause(new_clause);
+                if new_clause.literals.len() == 1 {
+                    let var = new_clause.literals[0];
+                    self.trail.0.insert(
+                        0,
+                        TrailState {
+                            var,
+                            reason: ReasonLock::Fixed(TrailChoice::SecondChoice),
+                        },
+                    );
+                    self.assigments[var.index] = VarSource::Fixed(var.sign, 0);
+                } else {
+                    //println!("learning: {}", new_clause);
+                    self.append_new_clause(new_clause)
+                }
             }
         }
 
@@ -687,7 +708,7 @@ where
     }
 
     // TODO: level is probably useless for this implementation
-    fn switch_at_least_level(&mut self/*, level: usize*/) -> Result<(), ()> {
+    fn switch_at_least_level(&mut self /*, level: usize*/) -> Result<(), ()> {
         while match self.trail.0.last().cloned() {
             // undo trail
             /*Some(TrailState {
@@ -729,12 +750,13 @@ where
             }) => {
                 //println!("switch: {}", !var);
                 self.sel_heuristics.deassign(var);
+                let var = !var;
                 self.trail.0.pop();
-                self.assigments[var.index] = VarSource::Fixed(!var.sign, self.level - 1);
+                self.assigments[var.index] = VarSource::Fixed(var.sign, self.level - 1);
                 let reason = ReasonLock::Fixed(TrailChoice::SecondChoice);
-                self.trail.0.push(TrailState { var: !var, reason });
+                self.trail.0.push(TrailState { var: var, reason });
                 // beaware of !
-                !self.sel_heuristics.assign(!var, reason)
+                !self.sel_heuristics.assign(var, reason)
             }
 
             //exhausted option
@@ -800,7 +822,6 @@ fn main() {
             println!(" 0");
         }
         ProblemType::Weighted(mut clauses, weights) => {
-
             // reordering in such way, that negatives with high weights are concluded sooner
             clauses.sort_by(|a, b| {
                 b.literals

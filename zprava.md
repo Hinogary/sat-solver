@@ -68,7 +68,7 @@ Vlastně už tahle jednoduchá heuristika fungovala natolik dobře, že nejtěž
 Priority na proměných
 ---------------------
 
-Vylepšení
+Čím častěji se proměná přiřazuje a nebo se objevuje v kolizích, tím je nejspíše důležitější. Tahle úprava způsobila zrychlení $1000 \times$ na testu `wuf150-02` a všechny `wuf150` dostala pod vteřinu. Na jednoduchý instancích to způsobilo maximálně lehké zpomalení (tj. o méně než milisekndu), ale maximální čas na těžších instancích klesnul.
 
 Výsledky
 --------
@@ -99,23 +99,23 @@ Tabulka s aktivovaným učením:
 
 | sada               | průměrný čas | maximální čas |
 |--------------------|------------:|------------:|
-| `wuf20-78-N1`      |   $75,3 µs$ |  $132,3 µs$ |
-| `wuf50-201-N1`     |  $318,5 µs$ |   $2,14 ms$ |
-| `wuf75-310-N1`     |   $1,43 ms$ |   $6,99 ms$ |
-| `wuf20-78-M1`      |   $88,2 µs$ |  $247,4 µs$ |
-| `wuf50-201-M1`     |  $339,0 µs$ |   $1,94 ms$ |
-| `wuf75-310-M1`     |   $14,5 ms$ |   $7,03 ms$ |
-| `wuf20-78-Q1`      |  $159,8 µs$ |  $288,5 µs$ |
-| `wuf50-201-Q1`     |   $2,71 ms$ |   $9,89 ms$ |
-| `wuf75-310-Q1`     |   $18,1 ms$ |   $57,0 ms$ |
-| `wuf20-78-R1`      |  $145,6 µs$ |  $250,1 µs$ |
-| `wuf50-201-R1`     |   $2,65 ms$ |   $10,2 ms$ |
-| `wuf75-310-R1`     |   $18,7 ms$ |   $52,6 ms$ |
-| `wuf20-88-A1`      |   $83,1 µs$ |  $135,5 µs$ |
-| `wuf20-91-A1`      |   $80,1 µs$ |  $118,1 µs$ |
-| `wuf100-430-A1`    |   $4,66 ms$ |   $17,0 ms$ |
+| `wuf20-78-N1`      |   $77,0 µs$ |  $162,3 µs$ |
+| `wuf50-201-N1`     |  $321,0 µs$ |   $1,96 ms$ |
+| `wuf75-310-N1`     |   $1,42 ms$ |   $7,53 ms$ |
+| `wuf20-78-M1`      |   $82,3 µs$ |  $255,3 µs$ |
+| `wuf50-201-M1`     |  $331,2 µs$ |   $1,95 ms$ |
+| `wuf75-310-M1`     |   $1,48 ms$ |   $8,15 ms$ |
+| `wuf20-78-Q1`      |  $159,0 µs$ |  $315,5 µs$ |
+| `wuf50-201-Q1`     |   $2,36 ms$ |   $7,73 ms$ |
+| `wuf75-310-Q1`     |   $14,5 ms$ |   $51,9 ms$ |
+| `wuf20-78-R1`      |  $161,5 µs$ |  $341,0 µs$ |
+| `wuf50-201-R1`     |   $2,35 ms$ |   $7,3 ms$ |
+| `wuf75-310-R1`     |   $14,0 ms$ |   $37,4 ms$ |
+| `wuf20-88-A1`      |   $85,3 µs$ |  $177,4 µs$ |
+| `wuf20-91-A1`      |   $82,4 µs$ |  $121,6 µs$ |
+| `wuf100-430-A1`    |   $4,40 ms$ |   $15,2 ms$ |
 
-Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $76,9 ms$ (s deaktivovaným učením tento čas stoupne na $105,7 ms$).
+Během vyhodnocování jsem narazil na chybu v učení klauzulí - ta byla odstraněna. Tím najde můj řešič optimální řešení pro všechny zadané problémy s maximálním časem $51,9 ms$ (s deaktivovaným učením tento čas stoupne na $105,7 ms$).
 
 Zkoušel jsem porovnávat dodané nalezené optimální řešení a mnou nalezené optimální řešení. Pro `wuf20-88-A1` a `wuf20-91-A1` jsem došel ke stejným výsledkům. Pro `wuf20-78-M1` taktéž. Pro `wuf50-201-M1` a `wuf50-201-Q1` těch daných řešení už moc není, ale na těch co jsou tak se shoduju. Na `wuf20-78-Q1` a `wuf20-78-N1` také shoda. Vzhledem k počtu shod je pravděpodobné, že moje implementace funguje správně.
 
@@ -123,18 +123,18 @@ Zkusil jsem spustit 10 nezkrácených problémů s 150 proměnými a 645 klauzul
 
 | problém          |     čas    |
 |------------------|-----------:|
-| `wuf150-01`      |   $0,43 s$ |
-| `wuf150-02`      |   $0,58 s$ |
-| `wuf150-03`      |   $0,39 s$ |
-| `wuf150-04`      |   $0,23 s$ |
-| `wuf150-05`      |   $0,24 s$ |
-| `wuf150-06`      |   $0,28 s$ |
-| `wuf150-07`      |   $0,10 s$ |
-| `wuf150-08`      |   $0,48 s$ |
-| `wuf150-09`      |   $0,22 s$ |
-| `wuf150-010`     |   $0,15 s$ |
-| průměrný čas     |   $0,31 s$ |
-| maximální čas    |   $0,58 s$ |
+| `wuf150-01`      |   $0,40 s$ |
+| `wuf150-02`      |   $0,47 s$ |
+| `wuf150-03`      |   $0,36 s$ |
+| `wuf150-04`      |   $0,21 s$ |
+| `wuf150-05`      |   $0,17 s$ |
+| `wuf150-06`      |   $0,24 s$ |
+| `wuf150-07`      |   $0,09 s$ |
+| `wuf150-08`      |   $0,45 s$ |
+| `wuf150-09`      |   $0,16 s$ |
+| `wuf150-010`     |   $0,12 s$ |
+| průměrný čas     |   $0,27 s$ |
+| maximální čas    |   $0,47 s$ |
 
 Mnou nalezené optimální řešení jsou ve složce `optimal_solutions` spolu s extrémní sadou `wuf150`. Spouštěl jsem to pomocí skriptu `runner.py` na 4-6 jádrech najednou. Například celá sada `wuf-N1` trvá $7,6 s$ na 6 jádrech.
 
