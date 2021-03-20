@@ -5,7 +5,7 @@ impl MaybeBool {
     pub fn undef() -> Self {
         MaybeBool(None)
     }
-
+    /*
     pub fn truee() -> Self {
         MaybeBool(Some(true))
     }
@@ -13,6 +13,7 @@ impl MaybeBool {
     pub fn falsee() -> Self {
         MaybeBool(Some(false))
     }
+    */
 }
 
 impl std::convert::From<bool> for MaybeBool {
