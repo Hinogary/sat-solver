@@ -1,8 +1,11 @@
 [package]
 name = "sat-solver"
+description = "At this time brute-force solver for SAT or Weighted-MAX-SAT."
 version = "0.1.0"
 authors = ["Martin Quarda <martin@quarda.cz>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/Hinogary/sat-solver"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
